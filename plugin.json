@@ -15,6 +15,12 @@
   ],
   "homepage": "https://github.com/GoCodeAlone/workflow-plugin-crypto",
   "repository": "https://github.com/GoCodeAlone/workflow-plugin-crypto",
+  "dependencies": [
+    {
+      "name": "workflow-plugin-compute-core",
+      "constraint": ">=0.0.0"
+    }
+  ],
   "capabilities": {
     "configProvider": false,
     "moduleTypes": [],
