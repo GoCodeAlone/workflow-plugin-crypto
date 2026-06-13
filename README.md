@@ -13,9 +13,24 @@ The plugin currently owns shape-only provider contracts for:
 
 Each profile declares the provider contract, network product shape, storage and
 network guidance, treasury reward routing, and upstream-client image policy.
-Mining, validator, and protocol-native reward roles are represented as deferred
-role profiles until custody, slashing-risk, payout attribution, and evidence
-contracts exist.
+
+The public catalog also exposes versioned operational evidence contracts:
+
+- full-node evidence validates real-client/runtime identity, durable data,
+  service-health, peer-policy, and private-RPC proof without claiming
+  protocol-native rewards;
+- miner evidence is limited to devnet block or pool-share evidence with
+  treasury routing, resource budgets, and stale-share accounting fields;
+- validator evidence requires custody and slashing-risk contract refs before it
+  can validate; and
+- protocol-native reward evidence requires chain reward event, treasury credit,
+  and attribution-policy refs.
+
+Mining, validator, and protocol-native reward roles remain deferred for product
+activation until host applications consume those contracts and supply the
+remaining custody, slashing-risk, payout attribution, and treasury-credit
+controls. Evidence payloads reject raw secret field names and obvious raw secret
+values; callers must pass `secret://...` or other host-managed refs instead.
 
 ## Build & Test
 

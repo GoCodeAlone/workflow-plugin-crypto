@@ -125,11 +125,12 @@ type CryptoProfile struct {
 }
 
 type CryptoProviderManifestDocument struct {
-	ProtocolVersion string              `json:"protocol_version"`
-	PluginID        string              `json:"plugin_id"`
-	Version         string              `json:"version"`
-	RoleProfiles    []CryptoRoleProfile `json:"role_profiles"`
-	Profiles        []CryptoProfile     `json:"profiles"`
+	ProtocolVersion   string                              `json:"protocol_version"`
+	PluginID          string                              `json:"plugin_id"`
+	Version           string                              `json:"version"`
+	RoleProfiles      []CryptoRoleProfile                 `json:"role_profiles"`
+	EvidenceContracts []CryptoOperationalEvidenceContract `json:"evidence_contracts"`
+	Profiles          []CryptoProfile                     `json:"profiles"`
 }
 
 func CryptoProviderManifest() CryptoProviderManifestDocument {
@@ -139,11 +140,12 @@ func CryptoProviderManifest() CryptoProviderManifestDocument {
 		profiles = append(profiles, profile)
 	}
 	return CryptoProviderManifestDocument{
-		ProtocolVersion: Version,
-		PluginID:        cryptoPluginID,
-		Version:         "v1.0.0",
-		RoleProfiles:    CryptoRoleProfiles(),
-		Profiles:        profiles,
+		ProtocolVersion:   Version,
+		PluginID:          cryptoPluginID,
+		Version:           "v1.0.0",
+		RoleProfiles:      CryptoRoleProfiles(),
+		EvidenceContracts: CryptoOperationalEvidenceContracts(),
+		Profiles:          profiles,
 	}
 }
 
@@ -253,6 +255,9 @@ func (m CryptoProviderManifestDocument) Validate() error {
 	if len(m.RoleProfiles) == 0 {
 		errs = append(errs, errors.New("role_profiles is required"))
 	}
+	if len(m.EvidenceContracts) == 0 {
+		errs = append(errs, errors.New("evidence_contracts is required"))
+	}
 	seenRoles := map[string]struct{}{}
 	for i, role := range m.RoleProfiles {
 		if strings.TrimSpace(role.ID) == "" {
@@ -277,6 +282,16 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if role.Status == CryptoRoleStatusDeferred && strings.TrimSpace(role.DeferredReason) == "" {
 			errs = append(errs, fmt.Errorf("role_profiles[%d].deferred_reason is required", i))
 		}
+	}
+	seenEvidenceContracts := map[string]struct{}{}
+	for i, contract := range m.EvidenceContracts {
+		if err := contract.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("evidence_contracts[%d]: %w", i, err))
+		}
+		if _, ok := seenEvidenceContracts[contract.Role]; ok {
+			errs = append(errs, fmt.Errorf("evidence_contracts[%d].role %q is duplicated", i, contract.Role))
+		}
+		seenEvidenceContracts[contract.Role] = struct{}{}
 	}
 	seen := map[string]struct{}{}
 	for i, profile := range m.Profiles {

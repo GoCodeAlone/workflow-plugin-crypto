@@ -82,7 +82,14 @@ func TestCryptoProviderManifest_ValidatesStableCatalog(t *testing.T) {
 	if len(manifest.Profiles) != 3 || manifest.Profiles[0].Chain != "btc" || manifest.Profiles[1].Chain != "bch" || manifest.Profiles[2].Chain != "ethereum" {
 		t.Fatalf("manifest profiles are not stable btc/bch/ethereum order: %+v", manifest.Profiles)
 	}
-	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:73faf36582844b9399686517b9cfd6ffe695fa47f14fedf87f4c02e74ec20b63" {
+	if len(manifest.EvidenceContracts) != 4 ||
+		manifest.EvidenceContracts[0].Role != catalog.CryptoRoleFullNode ||
+		manifest.EvidenceContracts[1].Role != catalog.CryptoRoleMiner ||
+		manifest.EvidenceContracts[2].Role != catalog.CryptoRoleValidator ||
+		manifest.EvidenceContracts[3].Role != catalog.CryptoRoleProtocolReward {
+		t.Fatalf("manifest evidence contracts are not stable full-node/miner/validator/protocol-reward order: %+v", manifest.EvidenceContracts)
+	}
+	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:1a49ea9a689d1b453148374f39cc48632ba95156e7a169a372ad3f7d7ebd3c94" {
 		t.Fatalf("crypto provider manifest digest drifted: got %s", digest)
 	}
 }
