@@ -28,15 +28,16 @@ type CryptoOperationalEvidenceContract struct {
 }
 
 type CryptoOperationalEvidenceDocument struct {
-	ProtocolVersion string                                   `json:"protocol_version"`
-	PluginID        string                                   `json:"plugin_id"`
-	Chain           string                                   `json:"chain"`
-	Role            string                                   `json:"role"`
-	ExternalRefs    map[string]string                        `json:"external_refs,omitempty"`
-	FullNode        *CryptoFullNodeOperationalEvidence       `json:"full_node,omitempty"`
-	Miner           *CryptoMinerOperationalEvidence          `json:"miner,omitempty"`
-	Validator       *CryptoValidatorOperationalEvidence      `json:"validator,omitempty"`
-	ProtocolReward  *CryptoProtocolRewardOperationalEvidence `json:"protocol_reward,omitempty"`
+	ProtocolVersion     string                                        `json:"protocol_version"`
+	PluginID            string                                        `json:"plugin_id"`
+	Chain               string                                        `json:"chain"`
+	Role                string                                        `json:"role"`
+	ExternalRefs        map[string]string                             `json:"external_refs,omitempty"`
+	FullNode            *CryptoFullNodeOperationalEvidence            `json:"full_node,omitempty"`
+	TransactionVerifier *CryptoTransactionVerifierOperationalEvidence `json:"transaction_verifier,omitempty"`
+	Miner               *CryptoMinerOperationalEvidence               `json:"miner,omitempty"`
+	Validator           *CryptoValidatorOperationalEvidence           `json:"validator,omitempty"`
+	ProtocolReward      *CryptoProtocolRewardOperationalEvidence      `json:"protocol_reward,omitempty"`
 }
 
 type CryptoFullNodeOperationalEvidence struct {
@@ -48,6 +49,15 @@ type CryptoFullNodeOperationalEvidence struct {
 	ServiceHealthReceiptRef   string `json:"service_health_receipt_ref"`
 	PeerPolicyEvidenceRef     string `json:"peer_policy_evidence_ref"`
 	RPCPolicy                 string `json:"rpc_policy"`
+	ProtocolNativeRewardProof bool   `json:"protocol_native_reward_proof"`
+}
+
+type CryptoTransactionVerifierOperationalEvidence struct {
+	RawTransactionDigest      string `json:"raw_transaction_digest"`
+	ExpectedTxID              string `json:"expected_txid"`
+	ComputedTxID              string `json:"computed_txid"`
+	OutputAccountingRef       string `json:"output_accounting_ref"`
+	RuntimeReceiptRef         string `json:"runtime_receipt_ref"`
 	ProtocolNativeRewardProof bool   `json:"protocol_native_reward_proof"`
 }
 
@@ -88,6 +98,18 @@ func CryptoOperationalEvidenceContracts() []CryptoOperationalEvidenceContract {
 				"service_health_receipt_ref",
 				"peer_policy_evidence_ref",
 				"rpc_policy=private-only",
+			},
+		},
+		{
+			Role:             CryptoRoleTransactionVerifier,
+			ProofMode:        CryptoProofModeTransactionVerify,
+			ActivationStatus: CryptoRoleStatusSupported,
+			RequiredRefs: []string{
+				"raw_transaction_digest",
+				"expected_txid",
+				"computed_txid",
+				"output_accounting",
+				"runtime_receipt_ref",
 			},
 		},
 		{
@@ -141,12 +163,16 @@ func (d CryptoOperationalEvidenceDocument) Validate() error {
 	if d.PluginID != cryptoPluginID {
 		errs = append(errs, fmt.Errorf("plugin_id must be %q", cryptoPluginID))
 	}
-	if _, ok := CryptoNetworkProfile(d.Chain); !ok {
-		errs = append(errs, fmt.Errorf("chain %q is unsupported", d.Chain))
-	}
 	role, ok := CryptoRoleProfileByID(d.Role)
 	if !ok {
 		errs = append(errs, fmt.Errorf("role %q is unsupported", d.Role))
+	}
+	if role.ID == CryptoRoleTransactionVerifier {
+		if _, ok := CryptoTransactionVerifierProfile(d.Chain); !ok {
+			errs = append(errs, fmt.Errorf("transaction-verifier chain %q is unsupported", d.Chain))
+		}
+	} else if _, ok := CryptoNetworkProfile(d.Chain); !ok {
+		errs = append(errs, fmt.Errorf("chain %q is unsupported", d.Chain))
 	}
 	if err := rejectRawSecrets(d); err != nil {
 		errs = append(errs, err)
@@ -154,6 +180,8 @@ func (d CryptoOperationalEvidenceDocument) Validate() error {
 	switch role.ID {
 	case CryptoRoleFullNode:
 		errs = append(errs, validateFullNodeEvidence(d.FullNode)...)
+	case CryptoRoleTransactionVerifier:
+		errs = append(errs, validateTransactionVerifierEvidence(d.TransactionVerifier)...)
 	case CryptoRoleMiner:
 		errs = append(errs, validateMinerEvidence(d.Miner)...)
 	case CryptoRoleValidator:
@@ -187,6 +215,31 @@ func validateFullNodeEvidence(e *CryptoFullNodeOperationalEvidence) []error {
 	}
 	if e.ProtocolNativeRewardProof {
 		errs = append(errs, errors.New("full-node operational evidence must not claim protocol-native reward proof"))
+	}
+	return errs
+}
+
+func validateTransactionVerifierEvidence(e *CryptoTransactionVerifierOperationalEvidence) []error {
+	if e == nil {
+		return []error{errors.New("transaction_verifier evidence is required")}
+	}
+	var errs []error
+	if !sha256DigestPattern.MatchString(e.RawTransactionDigest) {
+		errs = append(errs, errors.New("raw_transaction_digest must be sha256:<64 hex>"))
+	}
+	if !txidPattern.MatchString(e.ExpectedTxID) {
+		errs = append(errs, errors.New("expected_txid must be 64 hex characters"))
+	}
+	if !txidPattern.MatchString(e.ComputedTxID) {
+		errs = append(errs, errors.New("computed_txid must be 64 hex characters"))
+	}
+	if !strings.EqualFold(e.ExpectedTxID, e.ComputedTxID) {
+		errs = append(errs, errors.New("computed_txid must match expected_txid"))
+	}
+	requireNonEmpty(&errs, "output_accounting_ref", e.OutputAccountingRef)
+	requireNonEmpty(&errs, "runtime_receipt_ref", e.RuntimeReceiptRef)
+	if e.ProtocolNativeRewardProof {
+		errs = append(errs, errors.New("transaction verifier evidence must not claim protocol-native reward proof"))
 	}
 	return errs
 }
@@ -244,6 +297,7 @@ func requireNonEmpty(errs *[]error, name, value string) {
 }
 
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
+var txidPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
 
 func rejectRawSecrets(v any) error {
 	var errs []error

@@ -16,9 +16,11 @@ const (
 	CryptoRewardDestinationTreasury     = "treasury"
 	CryptoProofModeOperationalEvidence  = "operational-evidence"
 	CryptoProofModeMiningShare          = "mining-share"
+	CryptoProofModeTransactionVerify    = "transaction-verification"
 	CryptoProofModeValidatorDuty        = "validator-duty"
 	CryptoProofModeProtocolReward       = "protocol-reward"
 	CryptoRoleFullNode                  = "full-node"
+	CryptoRoleTransactionVerifier       = "transaction-verifier"
 	CryptoRoleMiner                     = "miner"
 	CryptoRoleValidator                 = "validator"
 	CryptoRoleProtocolReward            = "protocol-reward"
@@ -134,9 +136,13 @@ type CryptoProviderManifestDocument struct {
 }
 
 func CryptoProviderManifest() CryptoProviderManifestDocument {
-	profiles := make([]CryptoProfile, 0, 3)
+	profiles := make([]CryptoProfile, 0, 5)
 	for _, chain := range []string{"btc", "bch", "ethereum"} {
 		profile, _ := CryptoNetworkProfile(chain)
+		profiles = append(profiles, profile)
+	}
+	for _, chain := range []string{"btc", "bch"} {
+		profile, _ := CryptoTransactionVerifierProfile(chain)
 		profiles = append(profiles, profile)
 	}
 	return CryptoProviderManifestDocument{
@@ -165,6 +171,22 @@ func CryptoRoleProfiles() []CryptoRoleProfile {
 				"upstream client version evidence",
 				"durable data volume ref",
 				"public-chain peer policy evidence",
+			},
+		},
+		{
+			ID:                       CryptoRoleTransactionVerifier,
+			Status:                   CryptoRoleStatusSupported,
+			DisplayName:              "Transaction verifier",
+			Description:              "Verifies bounded raw transaction evidence without full-node sync, public peer ingress, durable chain storage, custody, or protocol-native reward claims.",
+			ProofMode:                CryptoProofModeTransactionVerify,
+			TreasuryRequired:         false,
+			DirectWorkerPayout:       false,
+			ProductCreationSupported: true,
+			RequiredEvidence: []string{
+				"raw transaction bytes or digest",
+				"expected transaction id",
+				"output accounting evidence",
+				"verification runtime receipt",
 			},
 		},
 		{
@@ -273,7 +295,11 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if strings.TrimSpace(role.ProofMode) == "" {
 			errs = append(errs, fmt.Errorf("role_profiles[%d].proof_mode is required", i))
 		}
-		if !role.TreasuryRequired || role.DirectWorkerPayout {
+		if role.ID == CryptoRoleTransactionVerifier {
+			if role.TreasuryRequired || role.DirectWorkerPayout {
+				errs = append(errs, fmt.Errorf("role_profiles[%d] transaction-verifier must not require treasury routing or direct payout", i))
+			}
+		} else if !role.TreasuryRequired || role.DirectWorkerPayout {
 			errs = append(errs, fmt.Errorf("role_profiles[%d] must use treasury routing without direct worker payout", i))
 		}
 		if role.Status == CryptoRoleStatusDeferred && role.ProductCreationSupported {
@@ -298,10 +324,11 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if strings.TrimSpace(profile.Chain) == "" {
 			errs = append(errs, fmt.Errorf("profiles[%d].chain is required", i))
 		}
-		if _, ok := seen[profile.Chain]; ok {
-			errs = append(errs, fmt.Errorf("profiles[%d].chain %q is duplicated", i, profile.Chain))
+		profileKey := profile.Chain + "/" + profile.Role.ID
+		if _, ok := seen[profileKey]; ok {
+			errs = append(errs, fmt.Errorf("profiles[%d].chain/role %q is duplicated", i, profileKey))
 		}
-		seen[profile.Chain] = struct{}{}
+		seen[profileKey] = struct{}{}
 		contract := profile.ProviderContract()
 		if err := contract.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("profiles[%d].provider_contract: %w", i, err))
@@ -319,16 +346,26 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if profile.Storage.MinDiskDisplay == "" || profile.Storage.RecommendedDiskDisplay == "" || profile.Storage.GrowthMarginDisplay == "" {
 			errs = append(errs, fmt.Errorf("profiles[%d].storage display guidance is required", i))
 		}
-		if profile.Network.ProfileID == "" || profile.Network.PeerPort <= 0 {
+		if profile.Network.ProfileID == "" || (profile.Role.ID != CryptoRoleTransactionVerifier && profile.Network.PeerPort <= 0) {
 			errs = append(errs, fmt.Errorf("profiles[%d].network is invalid", i))
 		}
-		if profile.Rewards.ProtocolRewardDestination != CryptoRewardDestinationTreasury || profile.Rewards.DirectWorkerPayout || profile.Rewards.ProtocolRewardProofClaimed {
-			errs = append(errs, fmt.Errorf("profiles[%d].rewards must route through treasury without protocol proof claim", i))
+		if profile.Role.ID == CryptoRoleTransactionVerifier {
+			if profile.Rewards != (CryptoRewardMetadata{}) {
+				errs = append(errs, fmt.Errorf("profiles[%d].transaction verifier rewards must be empty", i))
+			}
+		} else {
+			if profile.Rewards.ProtocolRewardDestination != CryptoRewardDestinationTreasury || profile.Rewards.DirectWorkerPayout || profile.Rewards.ProtocolRewardProofClaimed {
+				errs = append(errs, fmt.Errorf("profiles[%d].rewards must route through treasury without protocol proof claim", i))
+			}
+			if profile.Rewards.TreasuryAccountID != profile.ProductID+"-treasury" || profile.Rewards.TreasuryWalletRef != profile.WalletRef || profile.Rewards.ManagementFeeBasisPoints < 0 {
+				errs = append(errs, fmt.Errorf("profiles[%d].rewards treasury policy is invalid", i))
+			}
 		}
-		if profile.Rewards.TreasuryAccountID != profile.ProductID+"-treasury" || profile.Rewards.TreasuryWalletRef != profile.WalletRef || profile.Rewards.ManagementFeeBasisPoints < 0 {
-			errs = append(errs, fmt.Errorf("profiles[%d].rewards treasury policy is invalid", i))
-		}
-		if profile.Proof.Mode != CryptoProofModeOperationalEvidence || !profile.Proof.ShapeOnly || profile.Proof.ProtocolNativeRewardProof {
+		if profile.Role.ID == CryptoRoleTransactionVerifier {
+			if profile.Proof.Mode != CryptoProofModeTransactionVerify || profile.Proof.ProtocolNativeRewardProof {
+				errs = append(errs, fmt.Errorf("profiles[%d].proof must be transaction-verification without protocol-native rewards", i))
+			}
+		} else if profile.Proof.Mode != CryptoProofModeOperationalEvidence || !profile.Proof.ShapeOnly || profile.Proof.ProtocolNativeRewardProof {
 			errs = append(errs, fmt.Errorf("profiles[%d].proof must be operational evidence only", i))
 		}
 		if !profile.Image.DigestPinnedRequired || profile.Image.UpstreamClientName == "" {
@@ -432,6 +469,79 @@ func CryptoNetworkProfile(chain string) (CryptoProfile, bool) {
 	}
 }
 
+func CryptoTransactionVerifierProfile(chain string) (CryptoProfile, bool) {
+	switch strings.ToLower(strings.TrimSpace(chain)) {
+	case "btc", "bitcoin":
+		return cryptoTransactionVerifierProfile("btc", "Bitcoin", "bitcoin"), true
+	case "bch", "bitcoin-cash":
+		return cryptoTransactionVerifierProfile("bch", "Bitcoin Cash", "bitcoin-cash"), true
+	default:
+		return CryptoProfile{}, false
+	}
+}
+
+func cryptoTransactionVerifierProfile(chain, displayChain, settlementNetwork string) CryptoProfile {
+	productID := chain + "-transaction-verifier"
+	providerID := chain + "-transaction-verifier"
+	contractID := "crypto." + chain + "-transaction-verifier.v1"
+	return CryptoProfile{
+		Chain:             chain,
+		ProductID:         productID,
+		DisplayName:       displayChain + " Transaction Verifier",
+		Purpose:           displayChain + " bounded raw transaction verification without full-node sync",
+		PoolID:            chain + "-transaction-verifier",
+		ProviderID:        providerID,
+		ContractID:        contractID,
+		SchemaRef:         "schema://providers/workflow-plugin-crypto/" + providerID + "/v1",
+		SchemaDigest:      cryptoTransactionVerifierSchemaDigest(chain),
+		ConfigRef:         "config://network-products/" + productID + "/" + providerID,
+		SettlementNetwork: settlementNetwork,
+		MinDiskBytes:      1_000_000_000,
+		MinMemoryBytes:    512_000_000,
+		MinBandwidthMbps:  1,
+		Role: CryptoRoleMetadata{
+			ID:                     CryptoRoleTransactionVerifier,
+			ShapeOnly:              false,
+			ProtocolRewardsAssumed: false,
+		},
+		Storage: CryptoStorageMetadata{
+			Mode:                   "ephemeral-transaction-verification",
+			MinDiskBytes:           1_000_000_000,
+			MinDiskDisplay:         "1 GB",
+			RecommendedDiskBytes:   2_000_000_000,
+			RecommendedDiskDisplay: "2 GB",
+			GrowthMarginBytes:      0,
+			GrowthMarginDisplay:    "0 bytes",
+			DurableVolumeRequired:  false,
+			PreserveOnUpdate:       false,
+			PreserveOnUninstall:    false,
+			PruningSupported:       false,
+		},
+		Network: CryptoNetworkMetadata{
+			ProfileID:                 "transaction-verification",
+			RPCPrivateOnly:            true,
+			AuditRequired:             true,
+			MaxOutboundPeers:          0,
+			MaxOutboundBytesPerSecond: 1_000_000,
+			KillClosesPeers:           true,
+		},
+		Proof: CryptoProofMetadata{
+			Mode:                      CryptoProofModeTransactionVerify,
+			ShapeOnly:                 false,
+			ProtocolNativeRewardProof: false,
+			EvidenceRefs: []string{
+				"artifact://transaction-verification/input",
+				"artifact://transaction-verification/result",
+				"artifact://transaction-verification/runtime-receipt",
+			},
+		},
+		Image: CryptoImageMetadata{
+			UpstreamClientName:   chain + "-transaction-verifier",
+			DigestPinnedRequired: true,
+		},
+	}
+}
+
 func cryptoFullNodeRole() CryptoRoleMetadata {
 	return CryptoRoleMetadata{
 		ID:                       "full-node",
@@ -527,7 +637,51 @@ func cryptoSchemaDigest(chain string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+func cryptoTransactionVerifierSchemaDigest(chain string) string {
+	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["chain","raw_transaction_hex","expected_txid"],"additionalProperties":false,"properties":{"chain":{"const":"` + chain + `"},"raw_transaction_hex":{"type":"string"},"expected_txid":{"type":"string"},"expected_output_total":{"type":"integer","minimum":0}}}`
+	sum := sha256.Sum256([]byte(schema))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func (p CryptoProfile) ProviderContract() ProviderContract {
+	if p.Role.ID == CryptoRoleTransactionVerifier {
+		runtime := DefaultProviderRuntimeProfile(p.ProviderID, ExecutionSandboxedContainer, ProofArtifactHash)
+		runtime.UpstreamClientConformance = UpstreamClientConformanceShapeOnly
+		return ProviderContract{
+			ProtocolVersion:        Version,
+			ID:                     p.ProviderID + "-v1",
+			DisplayName:            p.DisplayName,
+			PluginID:               cryptoPluginID,
+			ProviderID:             p.ProviderID,
+			ContractID:             p.ContractID,
+			Version:                "v1.0.0",
+			ConfigSchemaRef:        p.SchemaRef,
+			ConfigSchemaDigest:     p.SchemaDigest,
+			OperatingModes:         []NetworkOperatingMode{NetworkModeBatch},
+			WorkloadKinds:          []string{string(WorkloadProvider)},
+			ExecutorProviders:      []string{p.ProviderID},
+			ExecutionSecurityTiers: []ExecutionSecurityTier{ExecutionSandboxedContainer},
+			ProofTiers:             []ProofTier{ProofArtifactHash},
+			NetworkModes:           []NetworkMode{NetworkModeOffline, NetworkModeDirect},
+			Operations: []ProviderOperation{{
+				ID:                 "verify_transaction",
+				InputSchemaRef:     p.SchemaRef + "/input",
+				InputSchemaDigest:  p.SchemaDigest,
+				OutputSchemaRef:    p.SchemaRef + "/output",
+				OutputSchemaDigest: p.SchemaDigest,
+				Artifacts:          []string{"transaction_verification.json"},
+				ArtifactSpecs: []ProviderArtifactSpec{{
+					Name:        "transaction_verification.json",
+					Required:    true,
+					ContentType: "application/json",
+					MaxBytes:    64 * 1024,
+				}},
+			}},
+			RuntimeContract: ProviderRuntimeContract{Profiles: []ProviderRuntimeProfile{
+				runtime,
+			}},
+		}
+	}
 	runtime := DefaultProviderRuntimeProfile("node-service-sandboxed-container", ExecutionSandboxedContainer, ProofArtifactHash)
 	runtime.UpstreamClientConformance = UpstreamClientConformanceShapeOnly
 	return ProviderContract{
@@ -610,6 +764,55 @@ func CryptoUpstreamClientRequirement(chain string) (ProviderUpstreamClientRequir
 func (p CryptoProfile) NetworkProduct(orgID string) NetworkProduct {
 	if strings.TrimSpace(orgID) == "" {
 		orgID = "public"
+	}
+	if p.Role.ID == CryptoRoleTransactionVerifier {
+		return NetworkProduct{
+			ProtocolVersion: Version,
+			ID:              p.ProductID,
+			DisplayName:     p.DisplayName,
+			Purpose:         p.Purpose,
+			OperatingMode:   NetworkModeBatch,
+			OrgID:           orgID,
+			PoolID:          p.PoolID,
+			WorkloadKinds:   []string{string(WorkloadProvider)},
+			SecurityFloor: PlacementRequirements{
+				ExecutorProvider:      p.ProviderID,
+				ExecutionSecurityTier: ExecutionSandboxedContainer,
+				ProofTier:             ProofArtifactHash,
+			},
+			SessionPolicy: SessionPolicy{WarmSeconds: 0, MinRenewals: 0, MaxBatchRequests: 1},
+			ProviderConfig: ProviderConfig{
+				PluginID:   cryptoPluginID,
+				ProviderID: p.ProviderID,
+				ContractID: p.ContractID,
+				Version:    "v1.0.0",
+				ConfigRef:  p.ConfigRef,
+			},
+			NetworkModes: []NetworkMode{NetworkModeOffline, NetworkModeDirect},
+			PlacementConstraints: PlacementConstraints{
+				Chain:            p.Chain,
+				Role:             CryptoRoleTransactionVerifier,
+				MinDiskBytes:     p.MinDiskBytes,
+				MinMemoryBytes:   p.MinMemoryBytes,
+				MinBandwidthMbps: p.MinBandwidthMbps,
+				RequiresIngress:  false,
+				StorageGuidance: StorageGuidance{
+					Mode:                   p.Storage.Mode,
+					MinDiskBytes:           p.Storage.MinDiskBytes,
+					MinDiskDisplay:         p.Storage.MinDiskDisplay,
+					RecommendedDiskBytes:   p.Storage.RecommendedDiskBytes,
+					RecommendedDiskDisplay: p.Storage.RecommendedDiskDisplay,
+					GrowthMarginBytes:      p.Storage.GrowthMarginBytes,
+					GrowthMarginDisplay:    p.Storage.GrowthMarginDisplay,
+					DurableVolumeRequired:  p.Storage.DurableVolumeRequired,
+					PreserveOnUpdate:       p.Storage.PreserveOnUpdate,
+					PreserveOnUninstall:    p.Storage.PreserveOnUninstall,
+					PruningSupported:       p.Storage.PruningSupported,
+				},
+			},
+			RewardPolicy: "verification-credit",
+			AbusePolicy:  "crypto-transaction-verifier-v1",
+		}
 	}
 	return NetworkProduct{
 		ProtocolVersion: Version,
