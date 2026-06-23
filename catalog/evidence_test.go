@@ -34,6 +34,45 @@ func TestCryptoFullNodeOperationalEvidence_RequiresRealConformanceWithoutRewardC
 	}
 }
 
+func TestCryptoTransactionVerifierEvidence_RequiresBoundedVerificationRefsWithoutRewardClaim(t *testing.T) {
+	doc := CryptoOperationalEvidenceDocument{
+		ProtocolVersion: CryptoOperationalEvidenceProtocolVersion,
+		PluginID:        "workflow-plugin-crypto",
+		Chain:           "btc",
+		Role:            CryptoRoleTransactionVerifier,
+		TransactionVerifier: &CryptoTransactionVerifierOperationalEvidence{
+			RawTransactionDigest:      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ExpectedTxID:              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			ComputedTxID:              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			OutputAccountingRef:       "artifact://tasks/task-6/output-accounting",
+			RuntimeReceiptRef:         "artifact://tasks/task-6/runtime-receipt",
+			ProtocolNativeRewardProof: false,
+		},
+	}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("transaction verifier evidence should validate: %v", err)
+	}
+
+	doc.TransactionVerifier.ExpectedTxID = strings.ToUpper(doc.TransactionVerifier.ExpectedTxID)
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("transaction verifier txid comparison should be case-insensitive: %v", err)
+	}
+	doc.TransactionVerifier.ExpectedTxID = strings.ToLower(doc.TransactionVerifier.ExpectedTxID)
+
+	doc.TransactionVerifier.ProtocolNativeRewardProof = true
+	err := doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "protocol-native reward proof") {
+		t.Fatalf("transaction verifier reward proof claim should be rejected, got %v", err)
+	}
+	doc.TransactionVerifier.ProtocolNativeRewardProof = false
+
+	doc.Chain = "ethereum"
+	err = doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "transaction-verifier chain") {
+		t.Fatalf("unsupported transaction verifier chain should be rejected, got %v", err)
+	}
+}
+
 func TestCryptoMinerEvidence_AllowsOnlyDevnetOrPoolShareTreasuryEvidence(t *testing.T) {
 	doc := CryptoOperationalEvidenceDocument{
 		ProtocolVersion: CryptoOperationalEvidenceProtocolVersion,

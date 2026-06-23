@@ -5,13 +5,17 @@ import core "github.com/GoCodeAlone/workflow-plugin-compute-core/protocol"
 const (
 	Version = core.Version
 
+	NetworkModeBatch       = core.NetworkModeBatch
 	NetworkModeNodeService = core.NetworkModeNodeService
+
+	WorkloadProvider = core.WorkloadProvider
 
 	ExecutionSandboxedContainer = core.ExecutionSandboxedContainer
 	ProofArtifactHash           = core.ProofArtifactHash
 
-	NetworkModeDirect = core.NetworkModeDirect
-	NetworkModeRelay  = core.NetworkModeRelay
+	NetworkModeDirect  = core.NetworkModeDirect
+	NetworkModeRelay   = core.NetworkModeRelay
+	NetworkModeOffline = core.NetworkModeOffline
 
 	UpstreamClientConformanceShapeOnly  = core.UpstreamClientConformanceShapeOnly
 	UpstreamClientConformanceRealClient = core.UpstreamClientConformanceRealClient
@@ -31,6 +35,8 @@ type (
 	ProofTier             = core.ProofTier
 
 	ProviderContract        = core.ProviderContract
+	ProviderOperation       = core.ProviderOperation
+	ProviderArtifactSpec    = core.ProviderArtifactSpec
 	ProviderRuntimeContract = core.ProviderRuntimeContract
 	ProviderRuntimeProfile  = core.ProviderRuntimeProfile
 

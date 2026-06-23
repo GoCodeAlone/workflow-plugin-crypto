@@ -79,18 +79,80 @@ func TestCryptoProviderManifest_ValidatesStableCatalog(t *testing.T) {
 	if manifest.ProtocolVersion != catalog.Version || manifest.PluginID != "workflow-plugin-crypto" || manifest.Version != "v1.0.0" {
 		t.Fatalf("manifest identity: %+v", manifest)
 	}
-	if len(manifest.Profiles) != 3 || manifest.Profiles[0].Chain != "btc" || manifest.Profiles[1].Chain != "bch" || manifest.Profiles[2].Chain != "ethereum" {
-		t.Fatalf("manifest profiles are not stable btc/bch/ethereum order: %+v", manifest.Profiles)
+	if len(manifest.Profiles) != 5 ||
+		manifest.Profiles[0].Chain != "btc" || manifest.Profiles[0].Role.ID != catalog.CryptoRoleFullNode ||
+		manifest.Profiles[1].Chain != "bch" || manifest.Profiles[1].Role.ID != catalog.CryptoRoleFullNode ||
+		manifest.Profiles[2].Chain != "ethereum" || manifest.Profiles[2].Role.ID != catalog.CryptoRoleFullNode ||
+		manifest.Profiles[3].Chain != "btc" || manifest.Profiles[3].Role.ID != "transaction-verifier" ||
+		manifest.Profiles[4].Chain != "bch" || manifest.Profiles[4].Role.ID != "transaction-verifier" {
+		t.Fatalf("manifest profiles are not stable full-node plus transaction-verifier order: %+v", manifest.Profiles)
 	}
-	if len(manifest.EvidenceContracts) != 4 ||
+	if len(manifest.EvidenceContracts) != 5 ||
 		manifest.EvidenceContracts[0].Role != catalog.CryptoRoleFullNode ||
-		manifest.EvidenceContracts[1].Role != catalog.CryptoRoleMiner ||
-		manifest.EvidenceContracts[2].Role != catalog.CryptoRoleValidator ||
-		manifest.EvidenceContracts[3].Role != catalog.CryptoRoleProtocolReward {
-		t.Fatalf("manifest evidence contracts are not stable full-node/miner/validator/protocol-reward order: %+v", manifest.EvidenceContracts)
+		manifest.EvidenceContracts[1].Role != "transaction-verifier" ||
+		manifest.EvidenceContracts[2].Role != catalog.CryptoRoleMiner ||
+		manifest.EvidenceContracts[3].Role != catalog.CryptoRoleValidator ||
+		manifest.EvidenceContracts[4].Role != catalog.CryptoRoleProtocolReward {
+		t.Fatalf("manifest evidence contracts are not stable full-node/transaction-verifier/miner/validator/protocol-reward order: %+v", manifest.EvidenceContracts)
 	}
-	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:1a49ea9a689d1b453148374f39cc48632ba95156e7a169a372ad3f7d7ebd3c94" {
+	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:bd9cdcdee42f1de53e47521f2387f1c3c1cefab7615d06b06e05ddb082dabe7c" {
 		t.Fatalf("crypto provider manifest digest drifted: got %s", digest)
+	}
+}
+
+func TestCryptoTransactionVerifierCatalog_IsFirstClassBoundedRole(t *testing.T) {
+	manifest := catalog.CryptoProviderManifest()
+	var role catalog.CryptoRoleProfile
+	for _, candidate := range manifest.RoleProfiles {
+		if candidate.ID == "transaction-verifier" {
+			role = candidate
+			break
+		}
+	}
+	if role.ID == "" {
+		t.Fatalf("manifest omitted transaction-verifier role: %+v", manifest.RoleProfiles)
+	}
+	if role.Status != catalog.CryptoRoleStatusSupported ||
+		role.ProofMode != "transaction-verification" ||
+		!role.ProductCreationSupported ||
+		role.TreasuryRequired ||
+		role.DirectWorkerPayout {
+		t.Fatalf("transaction-verifier role should be bounded, supported, and non-reward-bearing: %+v", role)
+	}
+	var evidence catalog.CryptoOperationalEvidenceContract
+	for _, candidate := range manifest.EvidenceContracts {
+		if candidate.Role == "transaction-verifier" {
+			evidence = candidate
+			break
+		}
+	}
+	if evidence.Role == "" || evidence.ActivationStatus != catalog.CryptoRoleStatusSupported {
+		t.Fatalf("manifest omitted supported transaction-verifier evidence contract: %+v", manifest.EvidenceContracts)
+	}
+
+	profile, ok := catalog.CryptoTransactionVerifierProfile("btc")
+	if !ok {
+		t.Fatal("missing BTC transaction-verifier profile")
+	}
+	if profile.ProductID != "btc-transaction-verifier" ||
+		profile.Role.ID != "transaction-verifier" ||
+		profile.MinDiskBytes > 10_000_000_000 ||
+		profile.Network.RequiresIngress ||
+		profile.Storage.DurableVolumeRequired {
+		t.Fatalf("transaction verifier profile must not model full-node storage or ingress: %+v", profile)
+	}
+	contract := profile.ProviderContract()
+	if err := contract.Validate(); err != nil {
+		t.Fatalf("transaction verifier contract invalid: %v", err)
+	}
+	product := profile.NetworkProduct("public")
+	if err := product.Validate(); err != nil {
+		t.Fatalf("transaction verifier product invalid: %v", err)
+	}
+	if product.PlacementConstraints.Role != "transaction-verifier" ||
+		product.OperatingMode == catalog.NetworkModeNodeService ||
+		slices.Contains(product.WorkloadKinds, "node-service") {
+		t.Fatalf("transaction verifier product should be bounded work, not node-service: %+v", product)
 	}
 }
 
