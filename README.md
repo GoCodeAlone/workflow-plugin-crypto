@@ -5,11 +5,12 @@ Public Workflow plugin for crypto network provider catalog metadata used by
 dependencies so this public plugin can build on public CI and be imported by
 future public tooling.
 
-The plugin currently owns shape-only provider contracts for:
+The plugin currently owns provider contracts for:
 
 - BTC full node
 - BCH full node
 - Ethereum full node
+- Ethereum testnet validator reward proof
 
 Each profile declares the provider contract, network product shape, storage and
 network guidance, treasury reward routing, and upstream-client image policy.
@@ -19,6 +20,10 @@ The public catalog also exposes versioned operational evidence contracts:
 - full-node evidence validates real-client/runtime identity, durable data,
   service-health, peer-policy, and private-RPC proof without claiming
   protocol-native rewards;
+- Ethereum testnet validator reward evidence validates retained-agent validator
+  duty execution, signer-mode refs, slashing protection refs, reward accrual,
+  wallet receipt status, and source-state hashes while rejecting mainnet funds
+  and raw key material;
 - miner evidence is limited to devnet block or pool-share evidence with
   treasury routing, resource budgets, and stale-share accounting fields;
 - validator evidence requires custody and slashing-risk contract refs before it
@@ -26,11 +31,24 @@ The public catalog also exposes versioned operational evidence contracts:
 - protocol-native reward evidence requires chain reward event, treasury credit,
   and attribution-policy refs.
 
-Mining, validator, and protocol-native reward roles remain deferred for product
-activation until host applications consume those contracts and supply the
-remaining custody, slashing-risk, payout attribution, and treasury-credit
-controls. Evidence payloads reject raw secret field names and obvious raw secret
-values; callers must pass `secret://...` or other host-managed refs instead.
+Generic mainnet-capable mining, validator, and protocol-native reward roles
+remain deferred for product activation until host applications consume those
+contracts and supply the remaining custody, slashing-risk, payout attribution,
+and treasury-credit controls. Evidence payloads reject raw secret field names
+and obvious raw secret values; callers must pass `secret://...` or other
+host-managed refs instead.
+
+The Ethereum validator reward runtime component is:
+
+```text
+provider://workflow-plugin-crypto/ethereum/validator-reward-runner
+```
+
+It accepts generic workflow-compute provider envelopes for
+`run_validator_reward_proof`, writes `validator_reward_evidence.json` for
+fixture observations with an explicit `fixture_mode` marker, and writes
+`validator_reward_blocker.json` when required live testnet validator inputs are
+unavailable. Staging acceptance must reject `fixture_mode` artifacts.
 
 ## Build & Test
 

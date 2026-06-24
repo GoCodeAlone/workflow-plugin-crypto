@@ -79,23 +79,25 @@ func TestCryptoProviderManifest_ValidatesStableCatalog(t *testing.T) {
 	if manifest.ProtocolVersion != catalog.Version || manifest.PluginID != "workflow-plugin-crypto" || manifest.Version != "v1.0.0" {
 		t.Fatalf("manifest identity: %+v", manifest)
 	}
-	if len(manifest.Profiles) != 5 ||
+	if len(manifest.Profiles) != 6 ||
 		manifest.Profiles[0].Chain != "btc" || manifest.Profiles[0].Role.ID != catalog.CryptoRoleFullNode ||
 		manifest.Profiles[1].Chain != "bch" || manifest.Profiles[1].Role.ID != catalog.CryptoRoleFullNode ||
 		manifest.Profiles[2].Chain != "ethereum" || manifest.Profiles[2].Role.ID != catalog.CryptoRoleFullNode ||
 		manifest.Profiles[3].Chain != "btc" || manifest.Profiles[3].Role.ID != "transaction-verifier" ||
-		manifest.Profiles[4].Chain != "bch" || manifest.Profiles[4].Role.ID != "transaction-verifier" {
-		t.Fatalf("manifest profiles are not stable full-node plus transaction-verifier order: %+v", manifest.Profiles)
+		manifest.Profiles[4].Chain != "bch" || manifest.Profiles[4].Role.ID != "transaction-verifier" ||
+		manifest.Profiles[5].Chain != "ethereum" || manifest.Profiles[5].Role.ID != catalog.CryptoRoleEthereumTestnetValidatorReward {
+		t.Fatalf("manifest profiles are not stable full-node plus transaction-verifier plus ethereum-validator-reward order: %+v", manifest.Profiles)
 	}
-	if len(manifest.EvidenceContracts) != 5 ||
+	if len(manifest.EvidenceContracts) != 6 ||
 		manifest.EvidenceContracts[0].Role != catalog.CryptoRoleFullNode ||
 		manifest.EvidenceContracts[1].Role != "transaction-verifier" ||
-		manifest.EvidenceContracts[2].Role != catalog.CryptoRoleMiner ||
-		manifest.EvidenceContracts[3].Role != catalog.CryptoRoleValidator ||
-		manifest.EvidenceContracts[4].Role != catalog.CryptoRoleProtocolReward {
-		t.Fatalf("manifest evidence contracts are not stable full-node/transaction-verifier/miner/validator/protocol-reward order: %+v", manifest.EvidenceContracts)
+		manifest.EvidenceContracts[2].Role != catalog.CryptoRoleEthereumTestnetValidatorReward ||
+		manifest.EvidenceContracts[3].Role != catalog.CryptoRoleMiner ||
+		manifest.EvidenceContracts[4].Role != catalog.CryptoRoleValidator ||
+		manifest.EvidenceContracts[5].Role != catalog.CryptoRoleProtocolReward {
+		t.Fatalf("manifest evidence contracts are not stable full-node/transaction-verifier/ethereum-validator-reward/miner/validator/protocol-reward order: %+v", manifest.EvidenceContracts)
 	}
-	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:bd9cdcdee42f1de53e47521f2387f1c3c1cefab7615d06b06e05ddb082dabe7c" {
+	if digest := catalog.CryptoProviderManifestDigest(); digest != "sha256:16bff1e52922ecf4359023381005eb3003a630756fa250813a104ecd18b4c3b5" {
 		t.Fatalf("crypto provider manifest digest drifted: got %s", digest)
 	}
 }
@@ -153,6 +155,72 @@ func TestCryptoTransactionVerifierCatalog_IsFirstClassBoundedRole(t *testing.T) 
 		product.OperatingMode == catalog.NetworkModeNodeService ||
 		slices.Contains(product.WorkloadKinds, "node-service") {
 		t.Fatalf("transaction verifier product should be bounded work, not node-service: %+v", product)
+	}
+}
+
+func TestEthereumTestnetValidatorRewardCatalog_IsSupportedBoundedRewardRole(t *testing.T) {
+	manifest := catalog.CryptoProviderManifest()
+	var role catalog.CryptoRoleProfile
+	for _, candidate := range manifest.RoleProfiles {
+		if candidate.ID == catalog.CryptoRoleEthereumTestnetValidatorReward {
+			role = candidate
+			break
+		}
+	}
+	if role.ID == "" {
+		t.Fatalf("manifest omitted ethereum testnet validator reward role: %+v", manifest.RoleProfiles)
+	}
+	if role.Status != catalog.CryptoRoleStatusSupported ||
+		role.ProofMode != catalog.CryptoProofModeValidatorDuty ||
+		!role.ProductCreationSupported ||
+		!role.TreasuryRequired ||
+		role.DirectWorkerPayout ||
+		role.RequiresCustodyContract {
+		t.Fatalf("ethereum testnet validator reward role should be supported, treasury-routed, and non-custodial: %+v", role)
+	}
+
+	var evidence catalog.CryptoOperationalEvidenceContract
+	for _, candidate := range manifest.EvidenceContracts {
+		if candidate.Role == catalog.CryptoRoleEthereumTestnetValidatorReward {
+			evidence = candidate
+			break
+		}
+	}
+	if evidence.Role == "" ||
+		evidence.ActivationStatus != catalog.CryptoRoleStatusSupported ||
+		evidence.ProofMode != catalog.CryptoProofModeValidatorDuty ||
+		!evidence.ProtocolRewardProof ||
+		evidence.RequiresCustodyContract {
+		t.Fatalf("manifest omitted supported non-custodial testnet validator reward evidence contract: %+v", manifest.EvidenceContracts)
+	}
+
+	profile, ok := catalog.CryptoEthereumTestnetValidatorRewardProfile()
+	if !ok {
+		t.Fatal("missing Ethereum testnet validator reward profile")
+	}
+	if profile.Chain != "ethereum" ||
+		profile.ProductID != "ethereum-testnet-validator-reward" ||
+		profile.Role.ID != catalog.CryptoRoleEthereumTestnetValidatorReward ||
+		profile.MinDiskBytes > 50_000_000_000 ||
+		profile.Network.RequiresIngress ||
+		!profile.Storage.DurableVolumeRequired ||
+		!profile.Proof.ProtocolNativeRewardProof ||
+		profile.Proof.ShapeOnly {
+		t.Fatalf("ethereum validator reward profile should be testnet bounded validator work: %+v", profile)
+	}
+	contract := profile.ProviderContract()
+	if err := contract.Validate(); err != nil {
+		t.Fatalf("ethereum validator reward contract invalid: %v", err)
+	}
+	product := profile.NetworkProduct("public")
+	if err := product.Validate(); err != nil {
+		t.Fatalf("ethereum validator reward product invalid: %v", err)
+	}
+	if product.PlacementConstraints.Role != catalog.CryptoRoleEthereumTestnetValidatorReward ||
+		product.OperatingMode == catalog.NetworkModeNodeService ||
+		slices.Contains(product.WorkloadKinds, "node-service") ||
+		product.SettlementTarget.Network == "ethereum" {
+		t.Fatalf("ethereum validator reward product should be bounded testnet provider work: %+v", product)
 	}
 }
 

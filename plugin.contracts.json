@@ -1,4 +1,10 @@
 {
-    "version": "1",
-    "contracts": []
+  "version": "1",
+  "contracts": [
+    {
+      "id": "crypto.ethereum-testnet-validator-reward.v1",
+      "path": "contracts/ethereum-validator-reward-provider.json",
+      "schema": "schemas/ethereum-validator-reward-provider.schema.json"
+    }
+  ]
 }

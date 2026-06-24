@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/input/v1",
+  "title": "Ethereum testnet validator reward proof input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "chain": {
+      "const": "ethereum"
+    },
+    "network": {
+      "type": "string",
+      "enum": ["hoodi", "sepolia"]
+    },
+    "validator_client_identity_ref": {
+      "type": "string"
+    },
+    "signer_mode_ref": {
+      "type": "string"
+    },
+    "withdrawal_address_ref": {
+      "type": "string"
+    },
+    "fee_recipient_address_ref": {
+      "type": "string"
+    },
+    "slashing_protection_ref": {
+      "type": "string"
+    },
+    "beacon_rpc_ref": {
+      "type": "string"
+    },
+    "beacon_api_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "validator_pubkey": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{96}$"
+    },
+    "observation_window_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "validator_pubkey": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{96}$"
+        },
+        "validator_client_version": {
+          "type": "string"
+        },
+        "duty_evidence_ref": {
+          "type": "string"
+        },
+        "reward_accrual_ref": {
+          "type": "string"
+        },
+        "wallet_receipt_status_ref": {
+          "type": "string"
+        },
+        "wallet_receipt_status": {
+          "type": "string",
+          "enum": ["pending", "observed"]
+        },
+        "reward_delta_gwei": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "validator_pubkey",
+        "validator_client_version",
+        "duty_evidence_ref",
+        "reward_accrual_ref",
+        "wallet_receipt_status_ref",
+        "reward_delta_gwei",
+        "source_state"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["fixture"]
+    },
+    {
+      "required": ["beacon_api_url", "validator_pubkey"]
+    }
+  ],
+  "required": [
+    "chain",
+    "network",
+    "validator_client_identity_ref",
+    "signer_mode_ref",
+    "withdrawal_address_ref",
+    "fee_recipient_address_ref",
+    "slashing_protection_ref"
+  ]
+}

@@ -5,6 +5,7 @@ on:
       - 'v*'
 permissions:
   contents: write
+  packages: write
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -56,5 +57,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"
 
-  # Registry publication is intentionally separate from binary release until
-  # workflow-compute consumes provider catalog plugins from the registry.
+  runtime-image:
+    runs-on: ubuntu-latest
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build ethereum validator reward runner binary
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X github.com/GoCodeAlone/workflow-plugin-crypto/internal/validatorreward.Version=${{ github.ref_name }}" -o docker/ethereum-validator-reward/ethereum-validator-reward-runner ./cmd/ethereum-validator-reward-runner
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push ethereum validator reward image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/ethereum-validator-reward/Dockerfile
+          push: true
+          tags: ghcr.io/gocodealone/workflow-plugin-crypto/ethereum-validator-reward-runner:${{ github.ref_name }}
+      - name: Report runtime image digest
+        run: echo "ethereum validator reward runtime image digest ${{ steps.build.outputs.digest }}"

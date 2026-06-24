@@ -1,0 +1,61 @@
+{
+  "protocol_version": "compute.v1alpha1",
+  "id": "ethereum-testnet-validator-reward-v1",
+  "plugin_id": "workflow-plugin-crypto",
+  "provider_id": "ethereum-testnet-validator-reward",
+  "contract_id": "crypto.ethereum-testnet-validator-reward.v1",
+  "version": "v1.0.0",
+  "display_name": "Ethereum Testnet Validator Reward",
+  "config_schema_ref": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/v1",
+  "config_schema_digest": "sha256:dd26e54778326d9b48d9fc37e698b8feb65fc612157106c85c0f9c504d581c32",
+  "operating_modes": ["batch"],
+  "workload_kinds": ["provider"],
+  "executor_providers": ["ethereum-testnet-validator-reward"],
+  "execution_security_tiers": ["sandboxed-container"],
+  "proof_tiers": ["artifact-hash"],
+  "network_modes": ["offline", "direct"],
+  "operations": [
+    {
+      "id": "run_validator_reward_proof",
+      "input_schema_ref": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/input/v1",
+      "input_schema_digest": "sha256:cb3cea0e504d12554e476028d9592b973fc7138120a775f40b8a49e4b6ccb825",
+      "output_schema_ref": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/output/v1",
+      "output_schema_digest": "sha256:f4c9b703516d57c5b2b753aa6a80a7bc6a880193faa57a4b15654fb647c5abdf",
+      "artifacts": ["validator_reward_evidence.json"],
+      "artifact_specs": [
+        {
+          "name": "validator_reward_evidence.json",
+          "required": true,
+          "content_type": "application/json",
+          "max_bytes": 262144
+        }
+      ]
+    }
+  ],
+  "runtime_contract": {
+    "profiles": [
+      {
+        "id": "ethereum-testnet-validator-reward-sandboxed-container-artifact-hash-runtime",
+        "runtime_profile": "sandboxed-oci-v1",
+        "executor_provider": "ethereum-testnet-validator-reward",
+        "execution_security_tier": "sandboxed-container",
+        "proof_tier": "artifact-hash",
+        "allowed_runtime_tools": ["podman", "docker", "nerdctl"],
+        "image_digest_required": true,
+        "rootfs_digest_required": true,
+        "allowed_mount_refs": ["workspace"],
+        "writable_paths": ["/tmp"],
+        "writable_rootfs": "forbidden",
+        "privileged": "forbidden",
+        "host_namespaces": "forbidden",
+        "host_socket": "forbidden",
+        "seccomp_disable": "forbidden",
+        "no_new_privileges_disable": "forbidden",
+        "allowed_capabilities": [],
+        "conformance_profiles": ["sandboxed-oci-v1"],
+        "host_workspace_supported": true,
+        "upstream_client_conformance": "shape-only"
+      }
+    ]
+  }
+}

@@ -20,12 +20,31 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{.Version}} -X github.com/GoCodeAlone/workflow-plugin-crypto/internal.Version={{.Version}}
+  - id: ethereum-validator-reward-runner
+    main: ./cmd/ethereum-validator-reward-runner
+    binary: ethereum-validator-reward-runner
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/GoCodeAlone/workflow-plugin-crypto/internal/validatorreward.Version={{.Version}}
 
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
     files:
       - plugin.json
+      - plugin.contracts.json
+      - contracts/ethereum-validator-reward-provider.json
+      - schemas/ethereum-validator-reward-provider.schema.json
+      - schemas/ethereum-validator-reward-operation-input.schema.json
+      - schemas/ethereum-validator-reward-operation-output.schema.json
       - LICENSE
 
 checksum:
