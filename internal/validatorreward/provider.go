@@ -31,6 +31,8 @@ const (
 	artifactMode             = 0o644
 	defaultObservationWindow = 60
 	maxObservationWindow     = 86_400
+	envBeaconAPIURL          = "WORKFLOW_CRYPTO_ETHEREUM_VALIDATOR_REWARD_BEACON_API_URL"
+	envValidatorPubkey       = "WORKFLOW_CRYPTO_ETHEREUM_VALIDATOR_REWARD_VALIDATOR_PUBKEY"
 )
 
 var Version = "0.1.0"
@@ -198,6 +200,7 @@ func runDynamic(r io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	applyLiveValidatorEnv(&workload, env.Env)
 	if err := runWorkload(workload, EvidenceArtifact); err != nil {
 		if writeErr := writeBlocker(BlockerArtifact, err); writeErr != nil {
 			return errors.Join(err, writeErr)
@@ -223,6 +226,25 @@ func runRequest(requestPath, outputPath string) error {
 		return errors.New("decode request: multiple JSON values")
 	}
 	return runWorkload(req.Workload, outputPath)
+}
+
+func applyLiveValidatorEnv(workload *Workload, env map[string]string) {
+	if workload == nil || workload.Fixture != (Fixture{}) {
+		return
+	}
+	if strings.TrimSpace(workload.BeaconAPIURL) == "" {
+		workload.BeaconAPIURL = liveValidatorEnvValue(env, envBeaconAPIURL)
+	}
+	if strings.TrimSpace(workload.ValidatorPubkey) == "" {
+		workload.ValidatorPubkey = liveValidatorEnvValue(env, envValidatorPubkey)
+	}
+}
+
+func liveValidatorEnvValue(env map[string]string, key string) string {
+	if value := strings.TrimSpace(env[key]); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 func readDynamicEnvelope(r io.Reader) (dynamicEnvelope, error) {
