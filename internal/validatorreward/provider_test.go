@@ -399,6 +399,71 @@ func TestMainKeepsExplicitLiveValidatorInputsAheadOfEnv(t *testing.T) {
 	}
 }
 
+func TestMainResolvesLiveValidatorInputsFromProcessEnvForRequestFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	oldSleep := sleep
+	sleep = func(time.Duration) {}
+	t.Cleanup(func() { sleep = oldSleep })
+
+	balanceCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/eth/v1/node/version":
+			fmt.Fprint(w, `{"data":{"version":"Lighthouse/v8.2.0"}}`)
+		case strings.HasPrefix(r.URL.Path, "/eth/v1/beacon/states/head/validators/"):
+			balanceCalls++
+			balance := int64(32_800_000_000)
+			if balanceCalls > 1 {
+				balance += 1024
+			}
+			fmt.Fprintf(w, `{"data":{"balance":"%d","status":"active_ongoing"}}`, balance)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	pubkey := "0x" + strings.Repeat("c", 96)
+	t.Setenv(envBeaconAPIURL, server.URL)
+	t.Setenv(envValidatorPubkey, pubkey)
+	requestPath := filepath.Join(dir, "request.json")
+	outputPath := filepath.Join(dir, "evidence.json")
+	request := `{
+	  "workload":{
+	    "chain":"ethereum",
+	    "network":"hoodi",
+	    "validator_client_identity_ref":"artifact://tasks/task-eth-live-file/validator-client-identity",
+	    "signer_mode_ref":"secret-ref://agents/agent-1/validator-signer",
+	    "withdrawal_address_ref":"wallet://ethereum-testnet-validator-reward/withdrawal",
+	    "fee_recipient_address_ref":"wallet://ethereum-testnet-validator-reward/fee-recipient",
+	    "slashing_protection_ref":"artifact://tasks/task-eth-live-file/slashing-protection",
+	    "observation_window_seconds":1
+	  }
+	}`
+	if err := os.WriteFile(requestPath, []byte(request), 0o600); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Main([]string{"--request", requestPath, "--output", outputPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runner failed with code %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read evidence: %v", err)
+	}
+	var doc catalog.CryptoOperationalEvidenceDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("decode evidence: %v", err)
+	}
+	reward := doc.EthereumTestnetValidatorReward
+	if reward.FixtureMode || reward.ValidatorPubkey != pubkey || reward.RewardDeltaGwei != 1024 {
+		t.Fatalf("file-request process-env-backed live evidence fields drifted: %+v", reward)
+	}
+}
+
 func TestBuildEvidenceRejectsRemotePlainHTTPBeaconURL(t *testing.T) {
 	_, err := buildEvidence(Workload{
 		Chain:                      "ethereum",

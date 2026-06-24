@@ -225,6 +225,7 @@ func runRequest(requestPath, outputPath string) error {
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return errors.New("decode request: multiple JSON values")
 	}
+	applyLiveValidatorEnv(&req.Workload, nil)
 	return runWorkload(req.Workload, outputPath)
 }
 
