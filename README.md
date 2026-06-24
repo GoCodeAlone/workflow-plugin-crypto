@@ -50,6 +50,15 @@ fixture observations with an explicit `fixture_mode` marker, and writes
 `validator_reward_blocker.json` when required live testnet validator inputs are
 unavailable. Staging acceptance must reject `fixture_mode` artifacts.
 
+Live testnet observations require a Beacon API URL and active validator pubkey.
+The operation input may provide `beacon_api_url` and `validator_pubkey`
+directly. For retained agents, the runner also accepts those same live inputs
+from the dynamic provider envelope or process environment using
+`WORKFLOW_CRYPTO_ETHEREUM_VALIDATOR_REWARD_BEACON_API_URL` and
+`WORKFLOW_CRYPTO_ETHEREUM_VALIDATOR_REWARD_VALIDATOR_PUBKEY`. Signer, wallet,
+and slashing-protection values remain refs in the operation input; raw validator
+keys are not accepted.
+
 ## Build & Test
 
 ```sh
