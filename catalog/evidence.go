@@ -13,6 +13,9 @@ const (
 	CryptoRPCPolicyPrivateOnly               = "private-only"
 	CryptoMinerEvidenceModeDevnetBlock       = "devnet-block"
 	CryptoMinerEvidenceModePoolShare         = "pool-share"
+	CryptoValidatorRewardStatusObserved      = "observed"
+	CryptoValidatorWalletReceiptPending      = "pending"
+	CryptoValidatorWalletReceiptObserved     = "observed"
 )
 
 type CryptoOperationalEvidenceContract struct {
@@ -28,16 +31,17 @@ type CryptoOperationalEvidenceContract struct {
 }
 
 type CryptoOperationalEvidenceDocument struct {
-	ProtocolVersion     string                                        `json:"protocol_version"`
-	PluginID            string                                        `json:"plugin_id"`
-	Chain               string                                        `json:"chain"`
-	Role                string                                        `json:"role"`
-	ExternalRefs        map[string]string                             `json:"external_refs,omitempty"`
-	FullNode            *CryptoFullNodeOperationalEvidence            `json:"full_node,omitempty"`
-	TransactionVerifier *CryptoTransactionVerifierOperationalEvidence `json:"transaction_verifier,omitempty"`
-	Miner               *CryptoMinerOperationalEvidence               `json:"miner,omitempty"`
-	Validator           *CryptoValidatorOperationalEvidence           `json:"validator,omitempty"`
-	ProtocolReward      *CryptoProtocolRewardOperationalEvidence      `json:"protocol_reward,omitempty"`
+	ProtocolVersion                string                                                   `json:"protocol_version"`
+	PluginID                       string                                                   `json:"plugin_id"`
+	Chain                          string                                                   `json:"chain"`
+	Role                           string                                                   `json:"role"`
+	ExternalRefs                   map[string]string                                        `json:"external_refs,omitempty"`
+	FullNode                       *CryptoFullNodeOperationalEvidence                       `json:"full_node,omitempty"`
+	TransactionVerifier            *CryptoTransactionVerifierOperationalEvidence            `json:"transaction_verifier,omitempty"`
+	Miner                          *CryptoMinerOperationalEvidence                          `json:"miner,omitempty"`
+	Validator                      *CryptoValidatorOperationalEvidence                      `json:"validator,omitempty"`
+	ProtocolReward                 *CryptoProtocolRewardOperationalEvidence                 `json:"protocol_reward,omitempty"`
+	EthereumTestnetValidatorReward *CryptoEthereumTestnetValidatorRewardOperationalEvidence `json:"ethereum_testnet_validator_reward,omitempty"`
 }
 
 type CryptoFullNodeOperationalEvidence struct {
@@ -85,6 +89,30 @@ type CryptoProtocolRewardOperationalEvidence struct {
 	AttributionPolicyRef        string `json:"attribution_policy_ref"`
 }
 
+type CryptoEthereumTestnetValidatorRewardOperationalEvidence struct {
+	Network                          string `json:"network"`
+	Testnet                          bool   `json:"testnet"`
+	ValidatorPubkey                  string `json:"validator_pubkey"`
+	ValidatorClientVersion           string `json:"validator_client_version"`
+	ValidatorClientIdentityRef       string `json:"validator_client_identity_ref"`
+	SignerModeRef                    string `json:"signer_mode_ref"`
+	ValidatorDutyEvidenceRef         string `json:"validator_duty_evidence_ref"`
+	RewardAccrualEvidenceRef         string `json:"reward_accrual_evidence_ref"`
+	RewardAccrualStatus              string `json:"reward_accrual_status"`
+	RewardDeltaGwei                  int64  `json:"reward_delta_gwei"`
+	WalletReceiptStatusRef           string `json:"wallet_receipt_status_ref"`
+	WalletReceiptStatus              string `json:"wallet_receipt_status"`
+	WithdrawalAddressRef             string `json:"withdrawal_address_ref"`
+	FeeRecipientAddressRef           string `json:"fee_recipient_address_ref"`
+	SlashingProtectionEvidenceRef    string `json:"slashing_protection_evidence_ref"`
+	RuntimeReceiptRef                string `json:"runtime_receipt_ref"`
+	ObservationWindowSeconds         int    `json:"observation_window_seconds"`
+	SourceStateDigest                string `json:"source_state_digest"`
+	FixtureMode                      bool   `json:"fixture_mode,omitempty"`
+	ProtocolNativeRewardProof        bool   `json:"protocol_native_reward_proof"`
+	ValueBearingMainnetFundsInvolved bool   `json:"value_bearing_mainnet_funds_involved"`
+}
+
 func CryptoOperationalEvidenceContracts() []CryptoOperationalEvidenceContract {
 	return []CryptoOperationalEvidenceContract{
 		{
@@ -109,6 +137,24 @@ func CryptoOperationalEvidenceContracts() []CryptoOperationalEvidenceContract {
 				"expected_txid",
 				"computed_txid",
 				"output_accounting",
+				"runtime_receipt_ref",
+			},
+		},
+		{
+			Role:                 CryptoRoleEthereumTestnetValidatorReward,
+			ProofMode:            CryptoProofModeValidatorDuty,
+			ActivationStatus:     CryptoRoleStatusSupported,
+			ProtocolRewardProof:  true,
+			RequiresSlashingRisk: true,
+			RequiredRefs: []string{
+				"validator_client_identity_ref",
+				"signer_mode_ref",
+				"validator_duty_evidence_ref",
+				"reward_accrual_evidence_ref",
+				"wallet_receipt_status_ref",
+				"withdrawal_address_ref",
+				"fee_recipient_address_ref",
+				"slashing_protection_evidence_ref",
 				"runtime_receipt_ref",
 			},
 		},
@@ -182,6 +228,8 @@ func (d CryptoOperationalEvidenceDocument) Validate() error {
 		errs = append(errs, validateFullNodeEvidence(d.FullNode)...)
 	case CryptoRoleTransactionVerifier:
 		errs = append(errs, validateTransactionVerifierEvidence(d.TransactionVerifier)...)
+	case CryptoRoleEthereumTestnetValidatorReward:
+		errs = append(errs, validateEthereumTestnetValidatorRewardEvidence(d.EthereumTestnetValidatorReward)...)
 	case CryptoRoleMiner:
 		errs = append(errs, validateMinerEvidence(d.Miner)...)
 	case CryptoRoleValidator:
@@ -290,6 +338,54 @@ func validateProtocolRewardEvidence(e *CryptoProtocolRewardOperationalEvidence) 
 	return errs
 }
 
+func validateEthereumTestnetValidatorRewardEvidence(e *CryptoEthereumTestnetValidatorRewardOperationalEvidence) []error {
+	if e == nil {
+		return []error{errors.New("ethereum_testnet_validator_reward evidence is required")}
+	}
+	var errs []error
+	switch strings.ToLower(strings.TrimSpace(e.Network)) {
+	case "hoodi", "sepolia":
+	default:
+		errs = append(errs, errors.New("network must be a supported Ethereum testnet"))
+	}
+	if !e.Testnet {
+		errs = append(errs, errors.New("testnet must be true for ethereum testnet validator reward evidence"))
+	}
+	if e.ValueBearingMainnetFundsInvolved {
+		errs = append(errs, errors.New("mainnet funds are not allowed in ethereum testnet validator reward evidence"))
+	}
+	requireNonEmpty(&errs, "validator_client_identity_ref", e.ValidatorClientIdentityRef)
+	requireNonEmpty(&errs, "validator_pubkey", e.ValidatorPubkey)
+	requireNonEmpty(&errs, "validator_client_version", e.ValidatorClientVersion)
+	requireNonEmpty(&errs, "signer_mode_ref", e.SignerModeRef)
+	requireNonEmpty(&errs, "validator_duty_evidence_ref", e.ValidatorDutyEvidenceRef)
+	requireNonEmpty(&errs, "reward_accrual_evidence_ref", e.RewardAccrualEvidenceRef)
+	requireNonEmpty(&errs, "wallet_receipt_status_ref", e.WalletReceiptStatusRef)
+	requireNonEmpty(&errs, "withdrawal_address_ref", e.WithdrawalAddressRef)
+	requireNonEmpty(&errs, "fee_recipient_address_ref", e.FeeRecipientAddressRef)
+	requireNonEmpty(&errs, "slashing_protection_evidence_ref", e.SlashingProtectionEvidenceRef)
+	requireNonEmpty(&errs, "runtime_receipt_ref", e.RuntimeReceiptRef)
+	if e.RewardAccrualStatus != CryptoValidatorRewardStatusObserved {
+		errs = append(errs, fmt.Errorf("reward_accrual_status must be %q", CryptoValidatorRewardStatusObserved))
+	}
+	if e.RewardDeltaGwei <= 0 {
+		errs = append(errs, errors.New("reward_delta_gwei must be positive"))
+	}
+	if e.WalletReceiptStatus != CryptoValidatorWalletReceiptPending && e.WalletReceiptStatus != CryptoValidatorWalletReceiptObserved {
+		errs = append(errs, fmt.Errorf("wallet_receipt_status must be %q or %q", CryptoValidatorWalletReceiptPending, CryptoValidatorWalletReceiptObserved))
+	}
+	if e.ObservationWindowSeconds <= 0 {
+		errs = append(errs, errors.New("observation_window_seconds must be positive"))
+	}
+	if !sha256DigestPattern.MatchString(e.SourceStateDigest) {
+		errs = append(errs, errors.New("source_state_digest must be sha256:<64 hex>"))
+	}
+	if !e.ProtocolNativeRewardProof {
+		errs = append(errs, errors.New("protocol_native_reward_proof must be true"))
+	}
+	return errs
+}
+
 func requireNonEmpty(errs *[]error, name, value string) {
 	if strings.TrimSpace(value) == "" {
 		*errs = append(*errs, fmt.Errorf("%s is required", name))
@@ -362,7 +458,7 @@ func isRawSecretField(name string) bool {
 	case "client_secret", "signing_secret", "private_key", "seed_phrase", "mnemonic", "bearer_token", "webhook_secret", "pool_secret":
 		return true
 	default:
-		return false
+		return strings.Contains(name, "private_key") || strings.Contains(name, "seed_phrase") || strings.Contains(name, "mnemonic")
 	}
 }
 

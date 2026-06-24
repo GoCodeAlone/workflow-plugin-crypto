@@ -11,21 +11,22 @@ import (
 const cryptoPluginID = "workflow-plugin-crypto"
 
 const (
-	CryptoStorageArchiveFull            = "archive-full"
-	CryptoNetworkProfilePublicChainPeer = "public-chain-peer"
-	CryptoRewardDestinationTreasury     = "treasury"
-	CryptoProofModeOperationalEvidence  = "operational-evidence"
-	CryptoProofModeMiningShare          = "mining-share"
-	CryptoProofModeTransactionVerify    = "transaction-verification"
-	CryptoProofModeValidatorDuty        = "validator-duty"
-	CryptoProofModeProtocolReward       = "protocol-reward"
-	CryptoRoleFullNode                  = "full-node"
-	CryptoRoleTransactionVerifier       = "transaction-verifier"
-	CryptoRoleMiner                     = "miner"
-	CryptoRoleValidator                 = "validator"
-	CryptoRoleProtocolReward            = "protocol-reward"
-	CryptoRoleStatusSupported           = "supported"
-	CryptoRoleStatusDeferred            = "deferred"
+	CryptoStorageArchiveFull                 = "archive-full"
+	CryptoNetworkProfilePublicChainPeer      = "public-chain-peer"
+	CryptoRewardDestinationTreasury          = "treasury"
+	CryptoProofModeOperationalEvidence       = "operational-evidence"
+	CryptoProofModeMiningShare               = "mining-share"
+	CryptoProofModeTransactionVerify         = "transaction-verification"
+	CryptoProofModeValidatorDuty             = "validator-duty"
+	CryptoProofModeProtocolReward            = "protocol-reward"
+	CryptoRoleFullNode                       = "full-node"
+	CryptoRoleTransactionVerifier            = "transaction-verifier"
+	CryptoRoleEthereumTestnetValidatorReward = "ethereum-testnet-validator-reward"
+	CryptoRoleMiner                          = "miner"
+	CryptoRoleValidator                      = "validator"
+	CryptoRoleProtocolReward                 = "protocol-reward"
+	CryptoRoleStatusSupported                = "supported"
+	CryptoRoleStatusDeferred                 = "deferred"
 )
 
 type CryptoRoleMetadata struct {
@@ -136,7 +137,7 @@ type CryptoProviderManifestDocument struct {
 }
 
 func CryptoProviderManifest() CryptoProviderManifestDocument {
-	profiles := make([]CryptoProfile, 0, 5)
+	profiles := make([]CryptoProfile, 0, 6)
 	for _, chain := range []string{"btc", "bch", "ethereum"} {
 		profile, _ := CryptoNetworkProfile(chain)
 		profiles = append(profiles, profile)
@@ -145,6 +146,8 @@ func CryptoProviderManifest() CryptoProviderManifestDocument {
 		profile, _ := CryptoTransactionVerifierProfile(chain)
 		profiles = append(profiles, profile)
 	}
+	profile, _ := CryptoEthereumTestnetValidatorRewardProfile()
+	profiles = append(profiles, profile)
 	return CryptoProviderManifestDocument{
 		ProtocolVersion:   Version,
 		PluginID:          cryptoPluginID,
@@ -187,6 +190,26 @@ func CryptoRoleProfiles() []CryptoRoleProfile {
 				"expected transaction id",
 				"output accounting evidence",
 				"verification runtime receipt",
+			},
+		},
+		{
+			ID:                           CryptoRoleEthereumTestnetValidatorReward,
+			Status:                       CryptoRoleStatusSupported,
+			DisplayName:                  "Ethereum testnet validator reward",
+			Description:                  "Runs Ethereum testnet validator duties from an agent-local signer or operator-owned remote signer and proves validator duty plus reward accrual without mainnet value-bearing custody.",
+			ProofMode:                    CryptoProofModeValidatorDuty,
+			TreasuryRequired:             true,
+			DirectWorkerPayout:           false,
+			ProductCreationSupported:     true,
+			RequiresCustodyContract:      false,
+			RequiresSlashingRiskContract: true,
+			RequiredEvidence: []string{
+				"validator client identity",
+				"signer mode ref",
+				"validator duty evidence",
+				"reward accrual evidence",
+				"wallet receipt status",
+				"slashing protection evidence",
 			},
 		},
 		{
@@ -346,12 +369,19 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if profile.Storage.MinDiskDisplay == "" || profile.Storage.RecommendedDiskDisplay == "" || profile.Storage.GrowthMarginDisplay == "" {
 			errs = append(errs, fmt.Errorf("profiles[%d].storage display guidance is required", i))
 		}
-		if profile.Network.ProfileID == "" || (profile.Role.ID != CryptoRoleTransactionVerifier && profile.Network.PeerPort <= 0) {
+		if profile.Network.ProfileID == "" || (!cryptoRoleUsesBoundedProviderWork(profile.Role.ID) && profile.Network.PeerPort <= 0) {
 			errs = append(errs, fmt.Errorf("profiles[%d].network is invalid", i))
 		}
 		if profile.Role.ID == CryptoRoleTransactionVerifier {
 			if profile.Rewards != (CryptoRewardMetadata{}) {
 				errs = append(errs, fmt.Errorf("profiles[%d].transaction verifier rewards must be empty", i))
+			}
+		} else if profile.Role.ID == CryptoRoleEthereumTestnetValidatorReward {
+			if profile.Rewards.ProtocolRewardDestination != CryptoRewardDestinationTreasury || profile.Rewards.DirectWorkerPayout || !profile.Rewards.ProtocolRewardProofClaimed {
+				errs = append(errs, fmt.Errorf("profiles[%d].validator reward must route through treasury with protocol proof", i))
+			}
+			if profile.Rewards.TreasuryAccountID != profile.ProductID+"-treasury" || profile.Rewards.TreasuryWalletRef != profile.WalletRef || profile.Rewards.ManagementFeeBasisPoints < 0 {
+				errs = append(errs, fmt.Errorf("profiles[%d].rewards treasury policy is invalid", i))
 			}
 		} else {
 			if profile.Rewards.ProtocolRewardDestination != CryptoRewardDestinationTreasury || profile.Rewards.DirectWorkerPayout || profile.Rewards.ProtocolRewardProofClaimed {
@@ -364,6 +394,10 @@ func (m CryptoProviderManifestDocument) Validate() error {
 		if profile.Role.ID == CryptoRoleTransactionVerifier {
 			if profile.Proof.Mode != CryptoProofModeTransactionVerify || profile.Proof.ProtocolNativeRewardProof {
 				errs = append(errs, fmt.Errorf("profiles[%d].proof must be transaction-verification without protocol-native rewards", i))
+			}
+		} else if profile.Role.ID == CryptoRoleEthereumTestnetValidatorReward {
+			if profile.Proof.Mode != CryptoProofModeValidatorDuty || profile.Proof.ShapeOnly || !profile.Proof.ProtocolNativeRewardProof {
+				errs = append(errs, fmt.Errorf("profiles[%d].proof must be validator-duty with protocol-native reward evidence", i))
 			}
 		} else if profile.Proof.Mode != CryptoProofModeOperationalEvidence || !profile.Proof.ShapeOnly || profile.Proof.ProtocolNativeRewardProof {
 			errs = append(errs, fmt.Errorf("profiles[%d].proof must be operational evidence only", i))
@@ -480,6 +514,77 @@ func CryptoTransactionVerifierProfile(chain string) (CryptoProfile, bool) {
 	}
 }
 
+func CryptoEthereumTestnetValidatorRewardProfile() (CryptoProfile, bool) {
+	productID := CryptoRoleEthereumTestnetValidatorReward
+	walletRef := "wallet://ethereum-testnet-validator-reward/treasury"
+	return CryptoProfile{
+		Chain:             "ethereum",
+		ProductID:         productID,
+		DisplayName:       "Ethereum Testnet Validator Reward",
+		Purpose:           "Ethereum testnet validator-duty execution with reward accrual proof and treasury-routed receipt status",
+		PoolID:            "ethereum-testnet-validator-reward",
+		ProviderID:        productID,
+		ContractID:        "crypto.ethereum-testnet-validator-reward.v1",
+		SchemaRef:         "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/v1",
+		SchemaDigest:      cryptoEthereumValidatorRewardSchemaDigest(),
+		ConfigRef:         "config://network-products/ethereum-testnet-validator-reward/ethereum-testnet-validator-reward",
+		SettlementNetwork: "ethereum-testnet",
+		WalletRef:         walletRef,
+		MinDiskBytes:      10_000_000_000,
+		MinMemoryBytes:    2_000_000_000,
+		MinBandwidthMbps:  5,
+		Role: CryptoRoleMetadata{
+			ID:                       CryptoRoleEthereumTestnetValidatorReward,
+			ShapeOnly:                false,
+			ProtocolRewardsAssumed:   true,
+			OperationalConformanceID: "ethereum-testnet-validator-reward-v1",
+		},
+		Storage: CryptoStorageMetadata{
+			Mode:                   "validator-state",
+			MinDiskBytes:           10_000_000_000,
+			MinDiskDisplay:         "10 GB",
+			RecommendedDiskBytes:   25_000_000_000,
+			RecommendedDiskDisplay: "25 GB",
+			GrowthMarginBytes:      5_000_000_000,
+			GrowthMarginDisplay:    "5 GB",
+			DurableVolumeRequired:  true,
+			PreserveOnUpdate:       true,
+			PreserveOnUninstall:    true,
+			PruningSupported:       false,
+		},
+		Network: CryptoNetworkMetadata{
+			ProfileID:                 "ethereum-testnet-validator-duty",
+			RPCPrivateOnly:            true,
+			AuditRequired:             true,
+			MaxOutboundPeers:          8,
+			MaxOutboundBytesPerSecond: 5_000_000,
+			KillClosesPeers:           true,
+		},
+		Rewards: cryptoValidatorRewardTreasuryRewards(productID, walletRef),
+		Proof: CryptoProofMetadata{
+			Mode:                      CryptoProofModeValidatorDuty,
+			ShapeOnly:                 false,
+			ProtocolNativeRewardProof: true,
+			EvidenceRefs: []string{
+				"artifact://validator-reward/validator-client-identity",
+				"artifact://validator-reward/validator-duties",
+				"artifact://validator-reward/reward-accrual",
+				"artifact://validator-reward/wallet-receipt-status",
+				"artifact://validator-reward/runtime-receipt",
+			},
+		},
+		Image: CryptoImageMetadata{
+			UpstreamClientName:       "ethereum-validator-client",
+			DigestPinnedRequired:     true,
+			OperatorSuppliedRequired: true,
+			KnownImageRefs: []string{
+				"sigp/lighthouse@sha256:<operator-confirmed-digest>",
+				"chainsafe/lodestar@sha256:<operator-confirmed-digest>",
+			},
+		},
+	}, true
+}
+
 func cryptoTransactionVerifierProfile(chain, displayChain, settlementNetwork string) CryptoProfile {
 	productID := chain + "-transaction-verifier"
 	providerID := chain + "-transaction-verifier"
@@ -540,6 +645,10 @@ func cryptoTransactionVerifierProfile(chain, displayChain, settlementNetwork str
 			DigestPinnedRequired: true,
 		},
 	}
+}
+
+func cryptoRoleUsesBoundedProviderWork(roleID string) bool {
+	return roleID == CryptoRoleTransactionVerifier || roleID == CryptoRoleEthereumTestnetValidatorReward
 }
 
 func cryptoFullNodeRole() CryptoRoleMetadata {
@@ -618,6 +727,12 @@ func cryptoTreasuryRewards(productID, walletRef string) CryptoRewardMetadata {
 	}
 }
 
+func cryptoValidatorRewardTreasuryRewards(productID, walletRef string) CryptoRewardMetadata {
+	rewards := cryptoTreasuryRewards(productID, walletRef)
+	rewards.ProtocolRewardProofClaimed = true
+	return rewards
+}
+
 func cryptoOperationalProof() CryptoProofMetadata {
 	return CryptoProofMetadata{
 		Mode:                      CryptoProofModeOperationalEvidence,
@@ -643,10 +758,53 @@ func cryptoTransactionVerifierSchemaDigest(chain string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+func cryptoEthereumValidatorRewardSchemaDigest() string {
+	return "sha256:dd26e54778326d9b48d9fc37e698b8feb65fc612157106c85c0f9c504d581c32"
+}
+
+func cryptoEthereumValidatorRewardInputSchemaDigest() string {
+	return "sha256:65dff8843c37b8f78fd402b695ca5a642af8d9f25bf118794ebc284991f523bf"
+}
+
+func cryptoEthereumValidatorRewardOutputSchemaDigest() string {
+	return "sha256:f4c9b703516d57c5b2b753aa6a80a7bc6a880193faa57a4b15654fb647c5abdf"
+}
+
 func (p CryptoProfile) ProviderContract() ProviderContract {
-	if p.Role.ID == CryptoRoleTransactionVerifier {
+	if cryptoRoleUsesBoundedProviderWork(p.Role.ID) {
 		runtime := DefaultProviderRuntimeProfile(p.ProviderID, ExecutionSandboxedContainer, ProofArtifactHash)
 		runtime.UpstreamClientConformance = UpstreamClientConformanceShapeOnly
+		operation := ProviderOperation{
+			ID:                 "run_validator_reward_proof",
+			InputSchemaRef:     "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/input/v1",
+			InputSchemaDigest:  cryptoEthereumValidatorRewardInputSchemaDigest(),
+			OutputSchemaRef:    "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/output/v1",
+			OutputSchemaDigest: cryptoEthereumValidatorRewardOutputSchemaDigest(),
+			Artifacts:          []string{"validator_reward_evidence.json"},
+			ArtifactSpecs: []ProviderArtifactSpec{{
+				Name:        "validator_reward_evidence.json",
+				Required:    true,
+				ContentType: "application/json",
+				MaxBytes:    256 * 1024,
+			}},
+		}
+		if p.Role.ID == CryptoRoleTransactionVerifier {
+			runtime.UpstreamClientConformance = UpstreamClientConformanceShapeOnly
+			operation = ProviderOperation{
+				ID:                 "verify_transaction",
+				InputSchemaRef:     p.SchemaRef + "/input",
+				InputSchemaDigest:  p.SchemaDigest,
+				OutputSchemaRef:    p.SchemaRef + "/output",
+				OutputSchemaDigest: p.SchemaDigest,
+				Artifacts:          []string{"transaction_verification.json"},
+				ArtifactSpecs: []ProviderArtifactSpec{{
+					Name:        "transaction_verification.json",
+					Required:    true,
+					ContentType: "application/json",
+					MaxBytes:    64 * 1024,
+				}},
+			}
+		}
 		return ProviderContract{
 			ProtocolVersion:        Version,
 			ID:                     p.ProviderID + "-v1",
@@ -663,20 +821,7 @@ func (p CryptoProfile) ProviderContract() ProviderContract {
 			ExecutionSecurityTiers: []ExecutionSecurityTier{ExecutionSandboxedContainer},
 			ProofTiers:             []ProofTier{ProofArtifactHash},
 			NetworkModes:           []NetworkMode{NetworkModeOffline, NetworkModeDirect},
-			Operations: []ProviderOperation{{
-				ID:                 "verify_transaction",
-				InputSchemaRef:     p.SchemaRef + "/input",
-				InputSchemaDigest:  p.SchemaDigest,
-				OutputSchemaRef:    p.SchemaRef + "/output",
-				OutputSchemaDigest: p.SchemaDigest,
-				Artifacts:          []string{"transaction_verification.json"},
-				ArtifactSpecs: []ProviderArtifactSpec{{
-					Name:        "transaction_verification.json",
-					Required:    true,
-					ContentType: "application/json",
-					MaxBytes:    64 * 1024,
-				}},
-			}},
+			Operations:             []ProviderOperation{operation},
 			RuntimeContract: ProviderRuntimeContract{Profiles: []ProviderRuntimeProfile{
 				runtime,
 			}},
@@ -765,8 +910,13 @@ func (p CryptoProfile) NetworkProduct(orgID string) NetworkProduct {
 	if strings.TrimSpace(orgID) == "" {
 		orgID = "public"
 	}
-	if p.Role.ID == CryptoRoleTransactionVerifier {
-		return NetworkProduct{
+	if cryptoRoleUsesBoundedProviderWork(p.Role.ID) {
+		rewardPolicy := "verification-credit"
+		abusePolicy := "crypto-transaction-verifier-v1"
+		session := SessionPolicy{WarmSeconds: 0, MinRenewals: 0, MaxBatchRequests: 1}
+		networkModes := []NetworkMode{NetworkModeOffline, NetworkModeDirect}
+		placementRole := p.Role.ID
+		product := NetworkProduct{
 			ProtocolVersion: Version,
 			ID:              p.ProductID,
 			DisplayName:     p.DisplayName,
@@ -780,7 +930,7 @@ func (p CryptoProfile) NetworkProduct(orgID string) NetworkProduct {
 				ExecutionSecurityTier: ExecutionSandboxedContainer,
 				ProofTier:             ProofArtifactHash,
 			},
-			SessionPolicy: SessionPolicy{WarmSeconds: 0, MinRenewals: 0, MaxBatchRequests: 1},
+			SessionPolicy: session,
 			ProviderConfig: ProviderConfig{
 				PluginID:   cryptoPluginID,
 				ProviderID: p.ProviderID,
@@ -788,14 +938,15 @@ func (p CryptoProfile) NetworkProduct(orgID string) NetworkProduct {
 				Version:    "v1.0.0",
 				ConfigRef:  p.ConfigRef,
 			},
-			NetworkModes: []NetworkMode{NetworkModeOffline, NetworkModeDirect},
+			NetworkModes: networkModes,
 			PlacementConstraints: PlacementConstraints{
 				Chain:            p.Chain,
-				Role:             CryptoRoleTransactionVerifier,
+				Role:             placementRole,
 				MinDiskBytes:     p.MinDiskBytes,
 				MinMemoryBytes:   p.MinMemoryBytes,
 				MinBandwidthMbps: p.MinBandwidthMbps,
 				RequiresIngress:  false,
+				WalletRef:        p.WalletRef,
 				StorageGuidance: StorageGuidance{
 					Mode:                   p.Storage.Mode,
 					MinDiskBytes:           p.Storage.MinDiskBytes,
@@ -810,9 +961,34 @@ func (p CryptoProfile) NetworkProduct(orgID string) NetworkProduct {
 					PruningSupported:       p.Storage.PruningSupported,
 				},
 			},
-			RewardPolicy: "verification-credit",
-			AbusePolicy:  "crypto-transaction-verifier-v1",
+			RewardPolicy: rewardPolicy,
+			AbusePolicy:  abusePolicy,
 		}
+		if p.Role.ID == CryptoRoleEthereumTestnetValidatorReward {
+			product.SessionPolicy = SessionPolicy{WarmSeconds: 3600, MinRenewals: 0, MaxBatchRequests: 1}
+			product.RewardPolicy = "protocol-reward-proof"
+			product.AbusePolicy = "ethereum-testnet-validator-reward-v1"
+			product.SettlementAccountID = p.Rewards.TreasuryAccountID
+			product.SettlementTarget = SettlementTarget{
+				Kind:      SettlementTargetTreasuryWallet,
+				AccountID: p.Rewards.TreasuryAccountID,
+				Network:   p.SettlementNetwork,
+				WalletRef: p.Rewards.TreasuryWalletRef,
+			}
+			product.CryptoRewardRouting = CryptoRewardRoutingPolicy{
+				Network:                 p.SettlementNetwork,
+				TreasuryAccountID:       p.Rewards.TreasuryAccountID,
+				TreasuryWalletRef:       p.Rewards.TreasuryWalletRef,
+				CustodyMode:             CryptoRewardCustodyTreasuryThenDistribute,
+				DistributionMode:        CryptoRewardDistributionContributionShare,
+				ParticipantWalletSource: CryptoRewardParticipantAccountWallet,
+				ManagementFeeBps:        p.Rewards.ManagementFeeBasisPoints,
+			}
+		}
+		if p.Role.ID == CryptoRoleTransactionVerifier {
+			product.PlacementConstraints.WalletRef = ""
+		}
+		return product
 	}
 	return NetworkProduct{
 		ProtocolVersion: Version,

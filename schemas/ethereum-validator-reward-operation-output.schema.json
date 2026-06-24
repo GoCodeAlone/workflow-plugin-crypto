@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/output/v1",
+  "title": "Ethereum testnet validator reward proof output",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["validator_reward_evidence.json"]
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["artifacts"]
+}

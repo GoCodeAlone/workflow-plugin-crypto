@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/v1",
+  "title": "Workflow crypto Ethereum testnet validator reward provider runtime",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "chain": {
+      "const": "ethereum"
+    },
+    "network": {
+      "type": "string",
+      "enum": ["hoodi", "sepolia"]
+    },
+    "validator_client_identity_ref": {
+      "type": "string"
+    },
+    "signer_mode_ref": {
+      "type": "string"
+    },
+    "withdrawal_address_ref": {
+      "type": "string"
+    },
+    "fee_recipient_address_ref": {
+      "type": "string"
+    },
+    "slashing_protection_ref": {
+      "type": "string"
+    },
+    "beacon_rpc_ref": {
+      "type": "string"
+    },
+    "beacon_api_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "validator_pubkey": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{96}$"
+    }
+  },
+  "required": [
+    "chain",
+    "network",
+    "validator_client_identity_ref",
+    "signer_mode_ref",
+    "withdrawal_address_ref",
+    "fee_recipient_address_ref",
+    "slashing_protection_ref"
+  ]
+}

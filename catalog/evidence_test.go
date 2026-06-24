@@ -141,6 +141,68 @@ func TestCryptoValidatorAndProtocolRewardEvidence_RequireCustodyAndRewardContrac
 	}
 }
 
+func TestEthereumTestnetValidatorRewardEvidence_RequiresRealDutyAndRewardRefs(t *testing.T) {
+	doc := CryptoOperationalEvidenceDocument{
+		ProtocolVersion: CryptoOperationalEvidenceProtocolVersion,
+		PluginID:        "workflow-plugin-crypto",
+		Chain:           "ethereum",
+		Role:            CryptoRoleEthereumTestnetValidatorReward,
+		EthereumTestnetValidatorReward: &CryptoEthereumTestnetValidatorRewardOperationalEvidence{
+			Network:                          "hoodi",
+			Testnet:                          true,
+			ValidatorPubkey:                  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ValidatorClientVersion:           "Lighthouse/v7.1.0",
+			ValidatorClientIdentityRef:       "artifact://tasks/task-7/validator-client-identity",
+			SignerModeRef:                    "secret-ref://agents/agent-1/validator-signer",
+			ValidatorDutyEvidenceRef:         "artifact://tasks/task-7/validator-duties",
+			RewardAccrualEvidenceRef:         "artifact://tasks/task-7/reward-accrual",
+			RewardAccrualStatus:              CryptoValidatorRewardStatusObserved,
+			RewardDeltaGwei:                  42,
+			WalletReceiptStatusRef:           "artifact://tasks/task-7/wallet-receipt-status",
+			WalletReceiptStatus:              CryptoValidatorWalletReceiptPending,
+			WithdrawalAddressRef:             "wallet://ethereum-testnet-validator-reward/withdrawal",
+			FeeRecipientAddressRef:           "wallet://ethereum-testnet-validator-reward/fee-recipient",
+			SlashingProtectionEvidenceRef:    "artifact://tasks/task-7/slashing-protection",
+			RuntimeReceiptRef:                "artifact://tasks/task-7/runtime-receipt",
+			ObservationWindowSeconds:         96,
+			SourceStateDigest:                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			FixtureMode:                      true,
+			ProtocolNativeRewardProof:        true,
+			ValueBearingMainnetFundsInvolved: false,
+		},
+	}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("ethereum testnet validator reward evidence should validate: %v", err)
+	}
+
+	doc.EthereumTestnetValidatorReward.Testnet = false
+	err := doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "testnet") {
+		t.Fatalf("mainnet validator reward evidence should be rejected, got %v", err)
+	}
+	doc.EthereumTestnetValidatorReward.Testnet = true
+
+	doc.EthereumTestnetValidatorReward.RewardAccrualStatus = "unobserved"
+	err = doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "reward_accrual_status") {
+		t.Fatalf("missing reward accrual should be rejected, got %v", err)
+	}
+	doc.EthereumTestnetValidatorReward.RewardAccrualStatus = CryptoValidatorRewardStatusObserved
+
+	doc.EthereumTestnetValidatorReward.ValueBearingMainnetFundsInvolved = true
+	err = doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "mainnet funds") {
+		t.Fatalf("mainnet funds should be rejected, got %v", err)
+	}
+	doc.EthereumTestnetValidatorReward.ValueBearingMainnetFundsInvolved = false
+
+	doc.ExternalRefs = map[string]string{"validator_private_key": "secret://agents/agent-1/key"}
+	err = doc.Validate()
+	if err == nil || !strings.Contains(err.Error(), "raw secret field") {
+		t.Fatalf("raw validator key fields should be rejected, got %v", err)
+	}
+}
+
 func TestCryptoOperationalEvidence_RejectsRawSecretFieldsAndValues(t *testing.T) {
 	doc := CryptoOperationalEvidenceDocument{
 		ProtocolVersion: CryptoOperationalEvidenceProtocolVersion,
