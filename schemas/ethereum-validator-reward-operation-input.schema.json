@@ -74,9 +74,26 @@
         "source_state": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "validator_pubkey",
+        "validator_client_version",
+        "duty_evidence_ref",
+        "reward_accrual_ref",
+        "wallet_receipt_status_ref",
+        "reward_delta_gwei",
+        "source_state"
+      ]
     }
   },
+  "oneOf": [
+    {
+      "required": ["fixture"]
+    },
+    {
+      "required": ["beacon_api_url", "validator_pubkey"]
+    }
+  ],
   "required": [
     "chain",
     "network",

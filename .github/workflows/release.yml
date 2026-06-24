@@ -69,7 +69,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build ethereum validator reward runner binary
-        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o docker/ethereum-validator-reward/ethereum-validator-reward-runner ./cmd/ethereum-validator-reward-runner
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X github.com/GoCodeAlone/workflow-plugin-crypto/internal/validatorreward.Version=${{ github.ref_name }}" -o docker/ethereum-validator-reward/ethereum-validator-reward-runner ./cmd/ethereum-validator-reward-runner
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:

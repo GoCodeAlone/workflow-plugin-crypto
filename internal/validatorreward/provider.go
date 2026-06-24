@@ -30,6 +30,7 @@ const (
 	ComputeProtocolVersion   = "compute.v1alpha1"
 	artifactMode             = 0o644
 	defaultObservationWindow = 60
+	maxObservationWindow     = 86_400
 )
 
 var Version = "0.1.0"
@@ -303,6 +304,9 @@ func buildEvidence(workload Workload) (catalog.CryptoOperationalEvidenceDocument
 	if window <= 0 {
 		window = defaultObservationWindow
 	}
+	if window > maxObservationWindow {
+		return catalog.CryptoOperationalEvidenceDocument{}, fmt.Errorf("observation_window_seconds must be at most %d", maxObservationWindow)
+	}
 	observation, err := observe(workload, window)
 	if err != nil {
 		return catalog.CryptoOperationalEvidenceDocument{}, err
@@ -366,6 +370,9 @@ func observe(workload Workload, windowSeconds int) (liveObservation, error) {
 	}
 	if base.Scheme != "https" && base.Scheme != "http" {
 		return liveObservation{}, errors.New("beacon_api_url must use http or https")
+	}
+	if base.Scheme == "http" && !isLocalBeaconHost(base.Hostname()) {
+		return liveObservation{}, errors.New("beacon_api_url must use https unless the host is localhost")
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	version, err := fetchNodeVersion(client, base)
@@ -437,7 +444,6 @@ func fetchJSON(client *http.Client, base *url.URL, path string, target any) erro
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	dec := json.NewDecoder(resp.Body)
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(target); err != nil {
 		return err
 	}
@@ -446,6 +452,11 @@ func fetchJSON(client *http.Client, base *url.URL, path string, target any) erro
 		return errors.New("multiple JSON values")
 	}
 	return nil
+}
+
+func isLocalBeaconHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func normalizeWorkload(workload *Workload) {

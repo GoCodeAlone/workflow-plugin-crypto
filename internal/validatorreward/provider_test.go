@@ -114,14 +114,14 @@ func TestMainRunsLiveBeaconObservation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/eth/v1/node/version":
-			fmt.Fprint(w, `{"data":{"version":"Lighthouse/v7.1.0"}}`)
+			fmt.Fprint(w, `{"data":{"version":"Lighthouse/v7.1.0","extra":"ignored"},"execution_optimistic":false,"finalized":true}`)
 		case strings.HasPrefix(r.URL.Path, "/eth/v1/beacon/states/head/validators/"):
 			balanceCalls++
 			balance := int64(32_000_000_000)
 			if balanceCalls > 1 {
 				balance += 64
 			}
-			fmt.Fprintf(w, `{"data":{"balance":"%d"}}`, balance)
+			fmt.Fprintf(w, `{"data":{"balance":"%d","status":"active_ongoing"},"execution_optimistic":false,"finalized":true}`, balance)
 		default:
 			http.NotFound(w, r)
 		}
@@ -173,6 +173,50 @@ func TestMainRunsLiveBeaconObservation(t *testing.T) {
 	reward := doc.EthereumTestnetValidatorReward
 	if reward.FixtureMode || reward.RewardDeltaGwei != 64 || reward.ValidatorClientVersion != "Lighthouse/v7.1.0" {
 		t.Fatalf("live evidence fields drifted: %+v", reward)
+	}
+}
+
+func TestBuildEvidenceRejectsRemotePlainHTTPBeaconURL(t *testing.T) {
+	_, err := buildEvidence(Workload{
+		Chain:                      "ethereum",
+		Network:                    "hoodi",
+		ValidatorClientIdentityRef: "artifact://validator/identity",
+		SignerModeRef:              "secret-ref://validator/signer",
+		WithdrawalAddressRef:       "wallet://validator/withdrawal",
+		FeeRecipientAddressRef:     "wallet://validator/fee-recipient",
+		SlashingProtectionRef:      "artifact://validator/slashing",
+		BeaconAPIURL:               "http://beacon.example.invalid",
+		ValidatorPubkey:            "0x" + strings.Repeat("c", 96),
+		ObservationWindowSeconds:   1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "https unless the host is localhost") {
+		t.Fatalf("expected remote http beacon URL rejection, got %v", err)
+	}
+}
+
+func TestBuildEvidenceBoundsObservationWindowInCode(t *testing.T) {
+	_, err := buildEvidence(Workload{
+		Chain:                      "ethereum",
+		Network:                    "hoodi",
+		ValidatorClientIdentityRef: "artifact://validator/identity",
+		SignerModeRef:              "secret-ref://validator/signer",
+		WithdrawalAddressRef:       "wallet://validator/withdrawal",
+		FeeRecipientAddressRef:     "wallet://validator/fee-recipient",
+		SlashingProtectionRef:      "artifact://validator/slashing",
+		ObservationWindowSeconds:   maxObservationWindow + 1,
+		Fixture: Fixture{
+			ValidatorPubkey:        "0x" + strings.Repeat("d", 96),
+			ValidatorClientVersion: "Lighthouse/v7.1.0",
+			DutyEvidenceRef:        "artifact://validator/duties",
+			RewardAccrualRef:       "artifact://validator/reward",
+			WalletReceiptStatusRef: "artifact://validator/wallet-receipt",
+			WalletReceiptStatus:    catalog.CryptoValidatorWalletReceiptPending,
+			RewardDeltaGwei:        1,
+			SourceState:            "bounded window fixture",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "observation_window_seconds") {
+		t.Fatalf("expected observation window bound rejection, got %v", err)
 	}
 }
 

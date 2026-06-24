@@ -763,7 +763,7 @@ func cryptoEthereumValidatorRewardSchemaDigest() string {
 }
 
 func cryptoEthereumValidatorRewardInputSchemaDigest() string {
-	return "sha256:65dff8843c37b8f78fd402b695ca5a642af8d9f25bf118794ebc284991f523bf"
+	return "sha256:cb3cea0e504d12554e476028d9592b973fc7138120a775f40b8a49e4b6ccb825"
 }
 
 func cryptoEthereumValidatorRewardOutputSchemaDigest() string {

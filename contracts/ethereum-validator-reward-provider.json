@@ -18,7 +18,7 @@
     {
       "id": "run_validator_reward_proof",
       "input_schema_ref": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/input/v1",
-      "input_schema_digest": "sha256:65dff8843c37b8f78fd402b695ca5a642af8d9f25bf118794ebc284991f523bf",
+      "input_schema_digest": "sha256:cb3cea0e504d12554e476028d9592b973fc7138120a775f40b8a49e4b6ccb825",
       "output_schema_ref": "schema://providers/workflow-plugin-crypto/ethereum-testnet-validator-reward/operations/run_validator_reward_proof/output/v1",
       "output_schema_digest": "sha256:f4c9b703516d57c5b2b753aa6a80a7bc6a880193faa57a4b15654fb647c5abdf",
       "artifacts": ["validator_reward_evidence.json"],
